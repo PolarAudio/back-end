@@ -18,7 +18,7 @@ const createCalendarEvent = async (bookingId, bookingData, userEmail) => {
     const paymentStatus = formatPaymentStatusForCalendar(bookingData.paymentStatus);
 
     const startDateTime = moment.tz(`${bookingData.date}T${bookingData.time}`, 'YYYY-MM-DDTHH:mm', 'Asia/Makassar');
-    const endDateTime = moment.tz(startDateTime).add(bookingData.duration, 'hours');
+    const endDateTime = startDateTime.clone().add(bookingData.duration, 'hours');
 
     const event = {
         summary: `Booking: ${bookingData.userName}`,
@@ -48,7 +48,7 @@ const updateCalendarEvent = async (googleEventId, bookingData, userEmail) => {
     const paymentStatus = formatPaymentStatusForCalendar(bookingData.paymentStatus);
 
     const startDateTime = moment.tz(`${bookingData.date}T${bookingData.time}`, 'YYYY-MM-DDTHH:mm', 'Asia/Makassar');
-    const endDateTime = moment.tz(startDateTime).add(bookingData.duration, 'hours');
+    const endDateTime = startDateTime.clone().add(bookingData.duration, 'hours');
 
     const event = {
         summary: `Booking: ${bookingData.userName}`,
