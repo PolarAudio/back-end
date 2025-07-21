@@ -17,16 +17,8 @@ const createCalendarEvent = async (bookingId, bookingData, userEmail) => {
     const equipmentList = formatEquipmentForCalendar(bookingData.equipment);
     const paymentStatus = formatPaymentStatusForCalendar(bookingData.paymentStatus);
 
-    console.log('Booking Data for Calendar Event:', bookingData);
-    console.log('Date:', bookingData.date, 'Time:', bookingData.time);
-
     const startDateTime = moment.tz(`${bookingData.date}T${bookingData.time}`, 'YYYY-MM-DDTHH:mm', 'Asia/Makassar');
-    console.log('startDateTime (moment object):', startDateTime.format());
-    console.log('startDateTime is valid:', startDateTime.isValid());
-
     const endDateTime = moment.tz(startDateTime).add(bookingData.duration, 'hours');
-    console.log('endDateTime (moment object):', endDateTime.format());
-    console.log('endDateTime is valid:', endDateTime.isValid());
 
     const event = {
         summary: `Booking: ${bookingData.userName}`,
@@ -55,16 +47,8 @@ const updateCalendarEvent = async (googleEventId, bookingData, userEmail) => {
     const equipmentList = formatEquipmentForCalendar(bookingData.equipment);
     const paymentStatus = formatPaymentStatusForCalendar(bookingData.paymentStatus);
 
-    console.log('Booking Data for Calendar Event (Update):', bookingData);
-    console.log('Date:', bookingData.date, 'Time:', bookingData.time);
-
     const startDateTime = moment.tz(`${bookingData.date}T${bookingData.time}`, 'YYYY-MM-DDTHH:mm', 'Asia/Makassar');
-    console.log('startDateTime (moment object):', startDateTime.format());
-    console.log('startDateTime is valid:', startDateTime.isValid());
-
     const endDateTime = moment.tz(startDateTime).add(bookingData.duration, 'hours');
-    console.log('endDateTime (moment object):', endDateTime.format());
-    console.log('endDateTime is valid:', endDateTime.isValid());
 
     const event = {
         summary: `Booking: ${bookingData.userName}`,
