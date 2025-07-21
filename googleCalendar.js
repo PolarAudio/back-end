@@ -1,6 +1,7 @@
 // standalone-backend/googleCalendar.js
 const { google } = require('googleapis');
 const serviceAccount = require('./serviceAccountKey.json');
+const moment = require('moment-timezone');
 
 const calendar = google.calendar('v3');
 const calendarId = 'eae066e12bee90f37aab773e16d2e1377da8dfe432da4a1740f89c4bfb2ad76c@group.calendar.google.com';
@@ -15,21 +16,22 @@ const auth = new google.auth.JWT(
 const createCalendarEvent = async (bookingId, bookingData, userEmail) => {
     const equipmentList = formatEquipmentForCalendar(bookingData.equipment);
     const paymentStatus = formatPaymentStatusForCalendar(bookingData.paymentStatus);
+
+    const startDateTime = moment.tz(`${bookingData.date}T${bookingData.time}`, 'YYYY-MM-DDTHH:mm', 'Asia/Makassar');
+    const endDateTime = moment.tz(startDateTime).add(bookingData.duration, 'hours');
+
     const event = {
         summary: `Booking: ${bookingData.userName}`,
         description: `Booking ID: ${bookingId}\nUser: ${bookingData.userName}\nEmail: ${userEmail}\nPayment: ${paymentStatus}\nEquipment: ${equipmentList}`,
         start: {
-
-            dateTime: new Date(`${bookingData.date}T${bookingData.time}`).toISOString(),
+            dateTime: startDateTime.format(),
             timeZone: 'Asia/Makassar',
         },
         end: {
-            dateTime: new Date(new Date(`${bookingData.date}T${bookingData.time}`).getTime() + bookingData.duration * 60 * 60 * 1000).toISOString(),
+            dateTime: endDateTime.format(),
             timeZone: 'Asia/Makassar',
         },
     };
-
-
 
     try {
         const res = await calendar.events.insert({ auth, calendarId, resource: event });
@@ -44,21 +46,22 @@ const createCalendarEvent = async (bookingId, bookingData, userEmail) => {
 const updateCalendarEvent = async (googleEventId, bookingData, userEmail) => {
     const equipmentList = formatEquipmentForCalendar(bookingData.equipment);
     const paymentStatus = formatPaymentStatusForCalendar(bookingData.paymentStatus);
+
+    const startDateTime = moment.tz(`${bookingData.date}T${bookingData.time}`, 'YYYY-MM-DDTHH:mm', 'Asia/Makassar');
+    const endDateTime = moment.tz(startDateTime).add(bookingData.duration, 'hours');
+
     const event = {
         summary: `Booking: ${bookingData.userName}`,
         description: `User: ${bookingData.userName}\nEmail: ${userEmail}\nPayment: ${paymentStatus}\nEquipment: ${equipmentList}`,
         start: {
-
-            dateTime: new Date(`${bookingData.date}T${bookingData.time}`).toISOString(),
+            dateTime: startDateTime.format(),
             timeZone: 'Asia/Makassar',
         },
         end: {
-            dateTime: new Date(new Date(`${bookingData.date}T${bookingData.time}`).getTime() + bookingData.duration * 60 * 60 * 1000).toISOString(),
+            dateTime: endDateTime.format(),
             timeZone: 'Asia/Makassar',
         },
     };
-
-
 
     try {
         const res = await calendar.events.update({ auth, calendarId, eventId: googleEventId, resource: event });
