@@ -96,7 +96,7 @@ Thank you.`
     transporter.sendMail(mailOptionsToClient).catch(err => console.error(`Error sending client ${type} email:`, err));
 
     // Email to admin
-    const adminDashboardLink = 'http://localhost:5173';
+    const adminDashboardLink = 'https://polaraudio.github.io/admin-page/';
     const adminText = `A booking has been ${type}d.
 
 Details:
