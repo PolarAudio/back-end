@@ -45,8 +45,12 @@ const adminOnly = async (req, res, next) => {
   try {
     const { uid } = req.user;
     const userProfilePath = `artifacts/${APP_ID_FOR_FIRESTORE_PATH}/users/${uid}/profiles/userProfile`;
+    console.log("Backend adminOnly: userProfilePath", userProfilePath);
+    console.log("Backend adminOnly: db object", db);
     const userDocRef = db.doc(userProfilePath);
+    console.log("Backend adminOnly: userDocRef", userDocRef);
     const userDocSnap = await userDocRef.get();
+    console.log("Backend adminOnly: userDocSnap", userDocSnap);
 
     if (userDocSnap.exists() && userDocSnap.data().role === 'admin') {
       next();
