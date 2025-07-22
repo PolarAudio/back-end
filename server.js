@@ -22,8 +22,6 @@ app.use(cors());
 app.use(bodyParser.json());
 
 const APP_ID_FOR_FIRESTORE_PATH = process.env.FIREBASE_PROJECT_ID || 'booking-app-1af02';
-const ADMIN_EMAIL = 'polarsolutions.warehouse@gmail.com';
-
 // Check for essential environment variables
 if (!process.env.GMAIL_USER || !process.env.GMAIL_PASS) {
   console.error("ERROR: GMAIL_USER and GMAIL_PASS environment variables must be set for Nodemailer to function.");
@@ -43,11 +41,22 @@ const transporter = nodemailer.createTransport({
   }
 });
 
-const adminOnly = (req, res, next) => {
-  if (req.user.email !== ADMIN_EMAIL) {
-    return res.status(403).send({ error: 'Forbidden' });
+const adminOnly = async (req, res, next) => {
+  try {
+    const { uid } = req.user;
+    const userProfilePath = `artifacts/${APP_ID_FOR_FIRESTORE_PATH}/users/${uid}/profiles/userProfile`;
+    const userDocRef = db.doc(userProfilePath);
+    const userDocSnap = await userDocRef.get();
+
+    if (userDocSnap.exists() && userDocSnap.data().role === 'admin') {
+      next();
+    } else {
+      res.status(403).send({ error: 'Forbidden: Not an administrator.' });
+    }
+  } catch (error) {
+    console.error('Error in adminOnly middleware:', error);
+    res.status(500).send({ error: 'Internal Server Error during admin check.' });
   }
-  next();
 };
 
 // Helper function to send booking-related emails
