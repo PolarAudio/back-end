@@ -5,6 +5,7 @@ require('dotenv').config();
 const express = require('express');
 const admin = require('firebase-admin');
 const bodyParser = require('body-parser');
+const { doc } = require('firebase-admin/firestore');
 const cors = require('cors');
 const nodemailer = require('nodemailer');
 const { createCalendarEvent, updateCalendarEvent, deleteCalendarEvent } = require('./googleCalendar');
