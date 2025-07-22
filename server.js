@@ -512,6 +512,11 @@ app.post('/api/admin/cancel-booking', authenticate, adminOnly, async (req, res) 
     }
 });
 
+// Health check endpoint
+app.get('/', (req, res) => {
+  res.status(200).send('Backend is online');
+});
+
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
