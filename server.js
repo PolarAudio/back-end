@@ -5,7 +5,6 @@ require('dotenv').config();
 const express = require('express');
 const admin = require('firebase-admin');
 const bodyParser = require('body-parser');
-const { doc } = require('firebase-admin/firestore');
 const cors = require('cors');
 const nodemailer = require('nodemailer');
 const { createCalendarEvent, updateCalendarEvent, deleteCalendarEvent } = require('./googleCalendar');
@@ -46,14 +45,10 @@ const adminOnly = async (req, res, next) => {
   try {
     const { uid } = req.user;
     const userProfilePath = `artifacts/${APP_ID_FOR_FIRESTORE_PATH}/users/${uid}/profiles/userProfile`;
-    console.log("Backend adminOnly: userProfilePath", userProfilePath);
-    console.log("Backend adminOnly: db object", db);
-    const userDocRef = db.doc(userProfilePath);
-    console.log("Backend adminOnly: userDocRef", userDocRef);
+    const userDocRef = admin.firestore().doc(userProfilePath);
     const userDocSnap = await userDocRef.get();
-    console.log("Backend adminOnly: userDocSnap", userDocSnap);
 
-    if (userDocSnap.exists() && userDocSnap.data().role === 'admin') {
+    if (userDocSnap.exists && userDocSnap.data().role === 'admin') {
       next();
     } else {
       res.status(403).send({ error: 'Forbidden: Not an administrator.' });
