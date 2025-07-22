@@ -519,7 +519,8 @@ app.post('/api/admin/cancel-booking', authenticate, adminOnly, async (req, res) 
 
 // Health check endpoint
 app.get('/', (req, res) => {
-  res.status(200).send('Backend is online');
+  res.setHeader('Cache-Control', 'no-store'); // Prevent caching
+  res.status(200).json({ status: 'online' });
 });
 
 const PORT = process.env.PORT || 3001;
