@@ -22,7 +22,7 @@ app.use(cors());
 app.use(bodyParser.json());
 
 const APP_ID_FOR_FIRESTORE_PATH = process.env.FIREBASE_PROJECT_ID || 'booking-app-1af02';
-const ADMIN_EMAIL = 'polarsolutions.warehouse@gmail.com'; // Re-added ADMIN_EMAIL
+const ADMIN_EMAIL = 'polarsolutions.warehouse@gmail.com' , 'andy@polarsolutionsbali.com'; // Re-added ADMIN_EMAIL
 // Check for essential environment variables
 if (!process.env.GMAIL_USER || !process.env.GMAIL_PASS) {
   console.error("ERROR: GMAIL_USER and GMAIL_PASS environment variables must be set for Nodemailer to function.");
