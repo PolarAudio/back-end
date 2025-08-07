@@ -69,13 +69,27 @@ const sendBookingEmails = async (type, bookingData, userEmail, bookingId = null)
     };
     const subject = subjectMap[type] || 'Booking Notification';
 
+    const formatEquipment = (equipment) => {
+        if (!equipment || equipment.length === 0) return '';
+        const players = equipment.filter(item => item.category === 'player').map(item => item.name || item.id);
+        const mixers = equipment.filter(item => item.category === 'mixer').map(item => item.name || item.id);
+        const extras = equipment.filter(item => item.category === 'extra').map(item => item.name || item.id);
+
+        let equipmentDetails = '';
+        if (players.length > 0) equipmentDetails += `Players: ${players.join(', ')}\n`;
+        if (mixers.length > 0) equipmentDetails += `Mixers: ${mixers.join(', ')}\n`;
+        if (extras.length > 0) equipmentDetails += `Extras: ${extras.join(', ')}\n`;
+
+        return equipmentDetails;
+    };
+
     const bookingDetails = `
         Booking ID: ${bookingId || 'N/A'}
         User Name: ${bookingData.userName}
         Date: ${bookingData.date}
         Time: ${bookingData.time}
         ${type === 'cancel' ? '' : `Duration: ${bookingData.duration} hours`}
-        ${type === 'cancel' ? '' : (bookingData.equipment && bookingData.equipment.length > 0 ? `Equipment: ${bookingData.equipment.map(item => item.name || item.id || 'Unknown Equipment').join(', ')}` : '')}
+        ${type === 'cancel' ? '' : (bookingData.equipment && bookingData.equipment.length > 0 ? `Equipment:\n${formatEquipment(bookingData.equipment)}` : '')}
         ${type === 'cancel' ? '' : (bookingData.paymentStatus ? `Payment Status: ${bookingData.paymentStatus}` : '')}
     `;
 
@@ -133,38 +147,72 @@ const authenticate = async (req, res, next) => {
 };
 
 app.post('/api/update-profile', authenticate, async (req, res) => {
-  const { displayName, email } = req.body;
-  const { uid } = req.user;
+    const { displayName, email } = req.body;
+    const { uid } = req.user;
 
-  if (!displayName || typeof displayName !== 'string' || displayName.trim() === '') {
-    return res.status(400).send({ error: 'The "displayName" argument is required and must be a non-empty string.' });
-  }
+    if (!displayName || typeof displayName !== 'string' || displayName.trim() === '') {
+        return res.status(400).send({ error: 'The "displayName" argument is required and must be a non-empty string.' });
+    }
 
-  try {
-    await admin.auth().updateUser(uid, {
-      displayName: displayName.trim(),
-    });
+    try {
+        await admin.auth().updateUser(uid, {
+            displayName: displayName.trim(),
+        });
 
-    const userProfileDocRef = db.doc(`artifacts/${APP_ID_FOR_FIRESTORE_PATH}/users/${uid}/profiles/userProfile`);
-    await userProfileDocRef.set({
-      userId: uid,
-      displayName: displayName.trim(),
-      email: email, // Add this line to save the email
-      lastUpdated: admin.firestore.FieldValue.serverTimestamp()
-    }, { merge: true });
+        const userProfileDocRef = db.doc(`artifacts/${APP_ID_FOR_FIRESTORE_PATH}/users/${uid}/profiles/userProfile`);
+        
+        // Ensure credits are initialized
+        const userProfileSnap = await userProfileDocRef.get();
+        const existingData = userProfileSnap.data() || {};
+        const credits = existingData.credits || 0;
 
-    res.send({ success: true, message: 'User profile updated successfully!' });
-  } catch (error) {
-    console.error('Error updating user profile:', error);
-    res.status(500).send({ error: 'Failed to update user profile due to a server error.' });
-  }
+        await userProfileDocRef.set({
+            userId: uid,
+            displayName: displayName.trim(),
+            email: email,
+            credits: credits, // Initialize credits if they don't exist
+            lastUpdated: admin.firestore.FieldValue.serverTimestamp()
+        }, { merge: true });
+
+        res.send({ success: true, message: 'User profile updated successfully!' });
+    } catch (error) {
+        console.error('Error updating user profile:', error);
+        res.status(500).send({ error: 'Failed to update user profile due to a server error.' });
+    }
 });
 
 app.post('/api/confirm-booking', authenticate, async (req, res) => {
     const { bookingData, userName, editingBookingId } = req.body;
     const { uid, email } = req.user;
 
+    // Enhanced validation for equipment
+    if (!bookingData.equipment || !Array.isArray(bookingData.equipment)) {
+        return res.status(400).send({ error: 'Invalid equipment data.' });
+    }
+
+    const hasPlayer = bookingData.equipment.some(eq => eq.category === 'player');
+    const hasMixer = bookingData.equipment.some(eq => eq.category === 'mixer');
+
+    if (!hasPlayer || !hasMixer) {
+        return res.status(400).send({ error: 'Booking must include at least one player and one mixer.' });
+    }
+
     try {
+        const userProfileRef = db.doc(`artifacts/${APP_ID_FOR_FIRESTORE_PATH}/users/${uid}/profiles/userProfile`);
+
+        if (bookingData.paymentMethod === 'credits') {
+            const userProfileSnap = await userProfileRef.get();
+            const userProfile = userProfileSnap.data();
+
+            if (!userProfile || userProfile.credits < 1) {
+                return res.status(400).send({ error: 'Insufficient credits.' });
+            }
+
+            // Decrement credits
+            await userProfileRef.update({ credits: admin.firestore.FieldValue.increment(-1) });
+            bookingData.paymentStatus = 'paid';
+        }
+
         let bookingId = editingBookingId;
         if (editingBookingId) {
             const bookingRef = db.doc(`artifacts/${APP_ID_FOR_FIRESTORE_PATH}/users/${uid}/bookings/${editingBookingId}`);
@@ -185,7 +233,6 @@ app.post('/api/confirm-booking', authenticate, async (req, res) => {
                 await updateCalendarEvent(googleEventId, enrichedBookingData, userEmailForCalendar);
             } else {
                 console.log(`GoogleEventId missing for booking ${editingBookingId} (main app). Creating new calendar event.`);
-                // If googleEventId is missing (e.g., for old bookings), create a new event
                 googleEventId = await createCalendarEvent(editingBookingId, enrichedBookingData, userEmailForCalendar);
                 await bookingRef.update({ googleEventId });
             }
@@ -203,7 +250,6 @@ app.post('/api/confirm-booking', authenticate, async (req, res) => {
             await bookingRef.update({ googleEventId });
         }
 
-        // Send confirmation email to client and admin
         await sendBookingEmails(editingBookingId ? 'update' : 'create', { ...bookingData, userName }, email, bookingId);
 
         res.send({ success: true, bookingId });
@@ -267,7 +313,6 @@ app.post('/api/confirm-payment', authenticate, async (req, res) => {
 
 // Admin routes
 app.get('/api/admin/bookings', authenticate, adminOnly, async (req, res) => {
-    // Add admin role check here in the future
     try {
         const bookingsSnapshot = await db.collectionGroup('bookings').orderBy('date', 'desc').get();
         const bookings = bookingsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -278,10 +323,8 @@ app.get('/api/admin/bookings', authenticate, adminOnly, async (req, res) => {
     }
 });
 
-// GET /api/admin/users - Fetches all user profiles for the admin dropdown
 app.get('/api/admin/users', authenticate, adminOnly, async (req, res) => {
   try {
-    // Assumes you have admin-checking middleware that has already verified the user
     console.log('Request received for /api/admin/users');
 
     const profilesRef = db.collectionGroup('profiles');
@@ -293,7 +336,6 @@ app.get('/api/admin/users', authenticate, adminOnly, async (req, res) => {
 
     const usersList = [];
     snapshot.forEach(doc => {
-      // The user's ID is the ID of the parent document of the 'profiles' subcollection
       const userId = doc.ref.parent.parent.id;
       usersList.push({
         id: userId,
@@ -310,8 +352,7 @@ app.get('/api/admin/users', authenticate, adminOnly, async (req, res) => {
 });
 
 app.post('/api/admin/bookings', authenticate, adminOnly, async (req, res) => {
-    // Add admin role check here in the future
-    const { bookingData, userName, userEmail } = req.body;""
+    const { bookingData, userName, userEmail } = req.body;
 
     try {
         const userRecord = await admin.auth().getUserByEmail(userEmail);
@@ -335,19 +376,31 @@ app.post('/api/admin/bookings', authenticate, adminOnly, async (req, res) => {
     }
 });
 
+app.post('/api/admin/add-credits', authenticate, adminOnly, async (req, res) => {
+    const { userId, amount } = req.body;
 
-// New endpoint for admin to create a user
+    if (!userId || !amount) {
+        return res.status(400).send({ error: 'User ID and amount are required.' });
+    }
+
+    try {
+        const userProfileRef = db.doc(`artifacts/${APP_ID_FOR_FIRESTORE_PATH}/users/${userId}/profiles/userProfile`);
+        await userProfileRef.update({ credits: admin.firestore.FieldValue.increment(amount) });
+        res.send({ success: true, message: `Successfully added ${amount} credits.` });
+    } catch (error) {
+        console.error('Error adding credits:', error);
+        res.status(500).send({ error: 'Failed to add credits.' });
+    }
+});
+
 app.post('/api/admin/create-user', authenticate, adminOnly, async (req, res) => {
     try {
-        
-
         const { email, displayName } = req.body;
 
         if (!email) {
             return res.status(400).json({ message: 'Email is required.' });
         }
 
-        // Generate a temporary password for user creation, it won't be sent to the user
         const generateRandomPassword = (length = 12) => {
             const lowerCaseChars = "abcdefghijklmnopqrstuvwxyz";
             const upperCaseChars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
@@ -372,11 +425,10 @@ app.post('/api/admin/create-user', authenticate, adminOnly, async (req, res) => 
 
         const userRecord = await admin.auth().createUser({
             email: email,
-            password: tempPassword, // Use a temporary password for creation
+            password: tempPassword,
             displayName: displayName,
         });
 
-        // Generate a password reset link
         const link = await admin.auth().generatePasswordResetLink(email);
 
         const mailOptions = {
@@ -403,12 +455,12 @@ app.post('/api/admin/create-user', authenticate, adminOnly, async (req, res) => 
 
         res.status(201).json({ uid: userRecord.uid, email: userRecord.email, displayName: userRecord.displayName });
 
-        // Create a Firestore profile for the new user
         const userProfileDocRef = db.doc(`artifacts/${APP_ID_FOR_FIRESTORE_PATH}/users/${userRecord.uid}/profiles/userProfile`);
         await userProfileDocRef.set({
             userId: userRecord.uid,
-            displayName: displayName || email, // Use displayName if provided, otherwise email
+            displayName: displayName || email,
             email: email,
+            credits: 0, // Initialize credits for new user
             createdAt: admin.firestore.FieldValue.serverTimestamp(),
             lastUpdated: admin.firestore.FieldValue.serverTimestamp()
         }, { merge: true });
@@ -421,10 +473,6 @@ app.post('/api/admin/create-user', authenticate, adminOnly, async (req, res) => 
     }
 });
 
-
-
-
-// Admin endpoint to confirm/update any booking
 app.post('/api/admin/confirm-booking', authenticate, adminOnly, async (req, res) => {
     const { bookingData, userName, editingBookingId, userId } = req.body;
 
@@ -452,7 +500,6 @@ app.post('/api/admin/confirm-booking', authenticate, adminOnly, async (req, res)
             if (googleEventId) {
                 await updateCalendarEvent(googleEventId, enrichedBookingData, userEmailForCalendar);
             } else {
-                // If googleEventId is missing (e.g., for old bookings), create a new event
                 googleEventId = await createCalendarEvent(editingBookingId, enrichedBookingData, userEmailForCalendar);
                 await bookingRef.update({ googleEventId });
             }
@@ -470,7 +517,6 @@ app.post('/api/admin/confirm-booking', authenticate, adminOnly, async (req, res)
             await bookingRef.update({ googleEventId });
         }
 
-        // Send confirmation email to client and admin
         const userRecord = await admin.auth().getUser(userId);
         const clientEmail = userRecord.email;
         await sendBookingEmails(editingBookingId ? 'update' : 'create', { ...bookingData, userName }, clientEmail, bookingId);
@@ -482,9 +528,8 @@ app.post('/api/admin/confirm-booking', authenticate, adminOnly, async (req, res)
     }
 });
 
-// Admin endpoint to cancel any booking
 app.post('/api/admin/cancel-booking', authenticate, adminOnly, async (req, res) => {
-    const { bookingId, userId } = req.body; // Admin needs to specify which user's booking to cancel
+    const { bookingId, userId } = req.body;
 
     if (!bookingId || !userId) {
         return res.status(400).send({ error: 'Booking ID and User ID are required.' });

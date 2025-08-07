@@ -82,12 +82,7 @@ const deleteCalendarEvent = async (googleEventId) => {
     }
 };
 
-const formatEquipmentForCalendar = (equipment) => {
-    if (equipment && equipment.length > 0) {
-        return equipment.map(item => item.name || item.id || 'Unknown Equipment').join(', ');
-    }
-    return 'None';
-};
+const formatEquipmentForCalendar = (equipment) => {    if (!equipment || equipment.length === 0) return 'None';    const players = equipment.filter(item => item.category === 'player').map(item => item.name || item.id);    const mixers = equipment.filter(item => item.category === 'mixer').map(item => item.name || item.id);    const extras = equipment.filter(item => item.category === 'extra').map(item => item.name || item.id);    let equipmentDetails = [];    if (players.length > 0) equipmentDetails.push(`Players: ${players.join(', ')}`);    if (mixers.length > 0) equipmentDetails.push(`Mixers: ${mixers.join(', ')}`);    if (extras.length > 0) equipmentDetails.push(`Extras: ${extras.join(', ')}`);    return equipmentDetails.join('\n');};
 
 const formatPaymentStatusForCalendar = (paymentStatus) => {
     return paymentStatus || 'N/A';
