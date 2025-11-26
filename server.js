@@ -6,7 +6,6 @@ const express = require('express');
 const admin = require('firebase-admin');
 const bodyParser = require('body-parser');
 const cors = require('cors');
-const mailjet = require('node-mailjet');
 const { createCalendarEvent, updateCalendarEvent, deleteCalendarEvent } = require('./googleCalendar');
 
 // Initialize Firebase Admin SDK
@@ -25,8 +24,8 @@ const APP_ID_FOR_FIRESTORE_PATH = process.env.FIREBASE_PROJECT_ID || 'booking-ap
 const ADMIN_EMAIL = ['polarsolutions.warehouse@gmail.com', 'service@polar-bali.com'];
 
 // Check for essential environment variables for Mailjet
-if (!process.env.MAILJET_API_KEY || !process.env.MAILJET_API_SECRET || !process.env.MAILJET_FROM_EMAIL) {
-  console.error("ERROR: MAILJET_API_KEY, MAILJET_API_SECRET, and MAILJET_FROM_EMAIL environment variables must be set for Mailjet to function.");
+if (!process.env.MJ_APIKEY_PUBLIC || !process.env.MJ_APIKEY_PRIVATE || !process.env.MAILJET_FROM_EMAIL) {
+  console.error("ERROR: MJ_APIKEY_PUBLIC, MJ_APIKEY_PRIVATE, and MAILJET_FROM_EMAIL environment variables must be set for Mailjet to function.");
   process.exit(1); // Exit if critical env vars are missing
 }
 
@@ -35,7 +34,10 @@ if (!process.env.FRONTEND_URL) {
 }
 
 // Mailjet client setup
-const mailjetClient = mailjet.connect(process.env.MAILJET_API_KEY, process.env.MAILJET_API_SECRET);
+const mailjetClient = require('node-mailjet').apiConnect(
+    process.env.MJ_APIKEY_PUBLIC,
+    process.env.MJ_APIKEY_PRIVATE
+);
 
 const adminOnly = async (req, res, next) => {
   try {
