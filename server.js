@@ -6,7 +6,7 @@ const express = require('express');
 const admin = require('firebase-admin');
 const bodyParser = require('body-parser');
 const cors = require('cors');
-const nodemailer = require('nodemailer');
+const mailjet = require('node-mailjet');
 const { createCalendarEvent, updateCalendarEvent, deleteCalendarEvent } = require('./googleCalendar');
 
 // Initialize Firebase Admin SDK
@@ -22,10 +22,11 @@ app.use(cors());
 app.use(bodyParser.json());
 
 const APP_ID_FOR_FIRESTORE_PATH = process.env.FIREBASE_PROJECT_ID || 'booking-app-1af02';
-const ADMIN_EMAIL = ['polarsolutions.warehouse@gmail.com', 'service@polar-bali.com']; // Re-added ADMIN_EMAIL
-// Check for essential environment variables
-if (!process.env.GMAIL_USER || !process.env.GMAIL_PASS) {
-  console.error("ERROR: GMAIL_USER and GMAIL_PASS environment variables must be set for Nodemailer to function.");
+const ADMIN_EMAIL = ['polarsolutions.warehouse@gmail.com', 'service@polar-bali.com'];
+
+// Check for essential environment variables for Mailjet
+if (!process.env.MAILJET_API_KEY || !process.env.MAILJET_API_SECRET || !process.env.MAILJET_FROM_EMAIL) {
+  console.error("ERROR: MAILJET_API_KEY, MAILJET_API_SECRET, and MAILJET_FROM_EMAIL environment variables must be set for Mailjet to function.");
   process.exit(1); // Exit if critical env vars are missing
 }
 
@@ -33,16 +34,8 @@ if (!process.env.FRONTEND_URL) {
   console.warn("WARNING: FRONTEND_URL environment variable is not set. Payment confirmation links in admin emails will be incomplete.");
 }
 
-// Nodemailer transporter setup
-const transporter = nodemailer.createTransport({
-  host: 'smtp.gmail.com',
-  port: 465,
-  secure: true, // use SSL
-  auth: {
-    user: process.env.GMAIL_USER,
-    pass: process.env.GMAIL_PASS
-  }
-});
+// Mailjet client setup
+const mailjetClient = mailjet.connect(process.env.MAILJET_API_KEY, process.env.MAILJET_API_SECRET);
 
 const adminOnly = async (req, res, next) => {
   try {
@@ -62,7 +55,7 @@ const adminOnly = async (req, res, next) => {
   }
 };
 
-// Helper function to send booking-related emails
+// Helper function to send booking-related emails via Mailjet
 const sendBookingEmails = async (type, bookingData, userEmail, bookingId = null) => {
     const subjectMap = {
         create: 'Booking Creation Confirmed',
@@ -95,23 +88,29 @@ const sendBookingEmails = async (type, bookingData, userEmail, bookingId = null)
         ${type === 'cancel' ? '' : (bookingData.paymentStatus ? `Payment Status: ${bookingData.paymentStatus}` : '')}
     `;
 
-    // Email to client
-    const mailOptionsToClient = {
-        from: process.env.GMAIL_USER,
-        to: userEmail,
-        subject: subject,
-        text: `Dear ${bookingData.userName},
+    // --- Email to client ---
+    const clientText = `Dear ${bookingData.userName},
 
 Your booking has been ${type}d.
 
 Details:
 ${bookingDetails}
 
-Thank you.`
-    };
-    transporter.sendMail(mailOptionsToClient).catch(err => console.error(`Error sending client ${type} email:`, err));
+Thank you.`;
 
-    // Email to admin
+    const clientEmailData = {
+        Messages: [{
+            From: { Email: process.env.MAILJET_FROM_EMAIL, Name: "Polar" },
+            To: [{ Email: userEmail }],
+            Subject: subject,
+            TextPart: clientText,
+        }]
+    };
+
+    mailjetClient.post("send", { 'version': 'v3.1' }).request(clientEmailData)
+        .catch(err => console.error(`Error sending client ${type} email:`, err.statusCode, err.message));
+
+    // --- Email to admin ---
     const adminDashboardLink = 'https://polaraudio.github.io/admin-page/';
     const adminText = `A booking has been ${type}d.
 
@@ -120,15 +119,17 @@ ${bookingDetails}${type === 'cancel' ? '' : `
 
 Go to Admin Dashboard: ${adminDashboardLink}`}`;
 
-    ADMIN_EMAIL.forEach(adminEmail => {
-        const mailOptionsToAdmin = {
-            from: process.env.GMAIL_USER,
-            to: adminEmail,
-            subject: `Admin Notification: ${subject}`,
-            text: adminText
-        };
-        transporter.sendMail(mailOptionsToAdmin).catch(err => console.error(`Error sending admin ${type} email to ${adminEmail}:`, err));
-    });
+    const adminEmailData = {
+        Messages: [{
+            From: { Email: process.env.MAILJET_FROM_EMAIL, Name: "Booking System" },
+            To: ADMIN_EMAIL.map(email => ({ Email: email })),
+            Subject: `Admin Notification: ${subject}`,
+            TextPart: adminText,
+        }]
+    };
+
+    mailjetClient.post("send", { 'version': 'v3.1' }).request(adminEmailData)
+        .catch(err => console.error(`Error sending admin ${type} email:`, err.statusCode, err.message));
 };
 
 
@@ -433,11 +434,12 @@ app.post('/api/admin/create-user', authenticate, adminOnly, async (req, res) => 
 
         const link = await admin.auth().generatePasswordResetLink(email);
 
-        const mailOptions = {
-            from: process.env.GMAIL_USER,
-            to: email,
-            subject: 'Set Up Your Showroom Booking App Account',
-            html: `<p>Hello ${displayName || email},</p>
+        const emailData = {
+            Messages: [{
+                From: { Email: process.env.MAILJET_FROM_EMAIL, Name: "The Polar Team" },
+                To: [{ Email: email }],
+                Subject: 'Set Up Your Showroom Booking App Account',
+                HTMLPart: `<p>Hello ${displayName || email},</p>
                    <p>Polar has created an account for you to use the Showroom Booking App.</p>
                    <p>To set up your password and log in, please click on the link below:</p>
                    <p><a href="${link}">Set Your Password</a></p>
@@ -445,15 +447,16 @@ app.post('/api/admin/create-user', authenticate, adminOnly, async (req, res) => 
                    <p>You can access the app here: <a href="${process.env.FRONTEND_URL || '[Link to App Here]'}">${process.env.FRONTEND_URL || '[Link to App Here]'}</a></p>
                    <p>Thank you,</p>
                    <p>The Polar Team</p>`,
+            }]
         };
 
-        transporter.sendMail(mailOptions, (error, info) => {
-            if (error) {
-                console.error('Error sending account setup email:', error);
-            } else {
-                console.log('Account setup email sent:', info.response);
-            }
-        });
+        mailjetClient.post("send", { 'version': 'v3.1' }).request(emailData)
+            .then(result => {
+                console.log('Account setup email sent:', result.body);
+            })
+            .catch(err => {
+                console.error('Error sending account setup email:', err.statusCode, err.message);
+            });
 
         res.status(201).json({ uid: userRecord.uid, email: userRecord.email, displayName: userRecord.displayName });
 
