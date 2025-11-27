@@ -62,7 +62,8 @@ const sendBookingEmails = async (type, bookingData, userEmail, bookingId = null)
     const subjectMap = {
         create: 'Booking Creation Confirmed',
         update: 'Booking Edited',
-        cancel: 'Booking Cancelled'
+        cancel: 'Booking Cancelled',
+        confirm: 'Booking Confirmed'
     };
     const subject = subjectMap[type] || 'Booking Notification';
 
@@ -88,6 +89,7 @@ const sendBookingEmails = async (type, bookingData, userEmail, bookingId = null)
         ${type === 'cancel' ? '' : `Duration: ${bookingData.duration} hours`}
         ${type === 'cancel' ? '' : (bookingData.equipment && bookingData.equipment.length > 0 ? `Equipment:\n${formatEquipment(bookingData.equipment)}` : '')}
         ${type === 'cancel' ? '' : (bookingData.paymentStatus ? `Payment Status: ${bookingData.paymentStatus}` : '')}
+        ${bookingData.status ? `Status: ${bookingData.status}` : ''}
     `;
 
     // --- Email to client ---
@@ -230,7 +232,7 @@ app.post('/api/confirm-booking', authenticate, async (req, res) => {
             const userRecordForCalendar = await admin.auth().getUser(uid);
             const userEmailForCalendar = userRecordForCalendar.email;
 
-            await bookingRef.update({ ...bookingData, userName, lastUpdated: admin.firestore.FieldValue.serverTimestamp() });
+            await bookingRef.update({ ...bookingData, userName, status: 'waiting for confirmation', lastUpdated: admin.firestore.FieldValue.serverTimestamp() });
 
             const enrichedBookingData = { ...bookingData, userName };
 
@@ -248,6 +250,7 @@ app.post('/api/confirm-booking', authenticate, async (req, res) => {
                 ...bookingData,
                 userName,
                 userId: uid,
+                status: 'waiting for confirmation',
                 timestamp: admin.firestore.FieldValue.serverTimestamp()
             });
             bookingId = bookingRef.id;
@@ -367,6 +370,7 @@ app.post('/api/admin/bookings', authenticate, adminOnly, async (req, res) => {
             ...bookingData,
             userName,
             userId: uid,
+            status: 'booking confirmed',
             timestamp: admin.firestore.FieldValue.serverTimestamp()
         });
 
@@ -500,7 +504,7 @@ app.post('/api/admin/confirm-booking', authenticate, adminOnly, async (req, res)
             const userRecordForCalendar = await admin.auth().getUser(userId);
             const userEmailForCalendar = userRecordForCalendar.email;
 
-            await bookingRef.update({ ...bookingData, userName, lastUpdated: admin.firestore.FieldValue.serverTimestamp() });
+            await bookingRef.update({ ...bookingData, userName, status: 'booking confirmed', lastUpdated: admin.firestore.FieldValue.serverTimestamp() });
 
             const enrichedBookingData = { ...bookingData, userName };
 
@@ -517,6 +521,7 @@ app.post('/api/admin/confirm-booking', authenticate, adminOnly, async (req, res)
                 ...bookingData,
                 userName,
                 userId: userId,
+                status: 'booking confirmed',
                 timestamp: admin.firestore.FieldValue.serverTimestamp()
             });
             bookingId = bookingRef.id;
@@ -564,6 +569,69 @@ app.post('/api/admin/cancel-booking', authenticate, adminOnly, async (req, res) 
     } catch (error) {
         console.error('Error cancelling booking by admin:', error);
         res.status(500).send({ error: 'Failed to cancel booking by admin.' });
+    }
+});
+
+app.post('/api/admin/confirm-booking-status', authenticate, adminOnly, async (req, res) => {
+    const { bookingId, userId } = req.body;
+
+    if (!bookingId || !userId) {
+        return res.status(400).send({ error: 'Booking ID and User ID are required.' });
+    }
+
+    try {
+        const bookingRef = db.doc(`artifacts/${APP_ID_FOR_FIRESTORE_PATH}/users/${userId}/bookings/${bookingId}`);
+        const doc = await bookingRef.get();
+
+        if (!doc.exists) {
+            return res.status(404).send({ error: 'Booking not found.' });
+        }
+
+        await bookingRef.update({ status: 'booking confirmed' });
+
+        const userRecord = await admin.auth().getUser(userId);
+        const clientEmail = userRecord.email;
+        const bookingData = doc.data();
+
+        await sendBookingEmails('confirm', { ...bookingData, status: 'booking confirmed' }, clientEmail, bookingId);
+
+        res.send({ success: true, message: 'Booking status confirmed successfully.' });
+    } catch (error) {
+        console.error('Error confirming booking status by admin:', error);
+        res.status(500).send({ error: 'Failed to confirm booking status by admin.' });
+    }
+});
+
+// Maintenance Mode Endpoints
+app.get('/api/maintenance-status', async (req, res) => {
+    try {
+        const settingsRef = db.doc('system/maintenance');
+        const doc = await settingsRef.get();
+        if (!doc.exists) {
+            // Default to not being in maintenance mode
+            return res.send({ isEnabled: false, message: '' });
+        }
+        res.send(doc.data());
+    } catch (error) {
+        console.error('Error getting maintenance status:', error);
+        res.status(500).send({ error: 'Failed to get maintenance status.' });
+    }
+});
+
+app.post('/api/admin/maintenance-mode', authenticate, adminOnly, async (req, res) => {
+    const { isEnabled, message } = req.body;
+
+    try {
+        const settingsRef = db.doc('system/maintenance');
+        await settingsRef.set({
+            isEnabled,
+            message,
+            lastUpdated: admin.firestore.FieldValue.serverTimestamp()
+        }, { merge: true });
+        res.send({ success: true, message: 'Maintenance mode updated successfully.' });
+    } catch (error) {
+        console.error('Error updating maintenance mode:', error);
+        res.status(500).send({ error: 'Failed to update maintenance mode.' });
     }
 });
 
