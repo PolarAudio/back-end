@@ -63,7 +63,8 @@ const sendBookingEmails = async (type, bookingData, userEmail, bookingId = null)
         create: 'Booking Creation Confirmed',
         update: 'Booking Edited',
         cancel: 'Booking Cancelled',
-        confirm: 'Booking Confirmed'
+        confirm: 'Booking Confirmed',
+        decline: 'Booking Declined'
     };
     const subject = subjectMap[type] || 'Booking Notification';
 
@@ -93,7 +94,7 @@ const sendBookingEmails = async (type, bookingData, userEmail, bookingId = null)
     `;
 
     // --- Email to client ---
-    const clientText = `Dear ${bookingData.userName},
+    let clientText = `Dear ${bookingData.userName},
 
 Your booking has been ${type}d.
 
@@ -101,6 +102,20 @@ Details:
 ${bookingDetails}
 
 Thank you.`;
+
+    if (type === 'decline') {
+        clientText = `Dear ${bookingData.userName},
+
+Your booking has been declined.
+
+Reason: ${bookingData.reason}
+
+Details:
+${bookingDetails}
+
+Thank you.`;
+    }
+
 
     const clientEmailData = {
         Messages: [{
@@ -572,6 +587,45 @@ app.post('/api/admin/cancel-booking', authenticate, adminOnly, async (req, res) 
     }
 });
 
+app.post('/api/admin/decline-booking', authenticate, adminOnly, async (req, res) => {
+    const { bookingId, userId, reason } = req.body;
+
+    if (!bookingId || !userId || !reason) {
+        return res.status(400).send({ error: 'Booking ID, User ID, and reason are required.' });
+    }
+
+    try {
+        const bookingRef = db.doc(`artifacts/${APP_ID_FOR_FIRESTORE_PATH}/users/${userId}/bookings/${bookingId}`);
+        const doc = await bookingRef.get();
+
+        if (!doc.exists) {
+            return res.status(404).send({ error: 'Booking not found for the specified user.' });
+        }
+
+        const existingBookingData = doc.data();
+        const googleEventId = existingBookingData.googleEventId;
+
+        // Update status to 'declined'
+        await bookingRef.update({ status: 'booking declined' });
+
+        if (googleEventId) {
+            await deleteCalendarEvent(googleEventId);
+        }
+
+        const userRecord = await admin.auth().getUser(userId);
+        const clientEmail = userRecord.email;
+
+        // Pass the reason to the email function
+        await sendBookingEmails('decline', { ...existingBookingData, reason }, clientEmail, bookingId);
+
+        res.send({ success: true, message: 'Booking declined successfully.' });
+    } catch (error) {
+        console.error('Error declining booking by admin:', error);
+        res.status(500).send({ error: 'Failed to decline booking by admin.' });
+    }
+});
+
+
 app.post('/api/admin/confirm-booking-status', authenticate, adminOnly, async (req, res) => {
     const { bookingId, userId } = req.body;
 
@@ -632,6 +686,50 @@ app.post('/api/admin/maintenance-mode', authenticate, adminOnly, async (req, res
     } catch (error) {
         console.error('Error updating maintenance mode:', error);
         res.status(500).send({ error: 'Failed to update maintenance mode.' });
+    }
+});
+
+app.post('/api/contact-us', async (req, res) => {
+    const { category, subject, message, userEmail, userName } = req.body;
+
+    // 1. Validate incoming data
+    if (!category || !subject || !message) {
+        return res.status(400).send({ error: 'Category, subject, and message are required.' });
+    }
+
+    try {
+        // 2. Construct email content
+        let emailBody = `
+            Category: ${category}
+            Subject: ${subject}
+            Message: ${message}
+        `;
+
+        if (userName) {
+            emailBody += `\nFrom Name: ${userName}`;
+        }
+        if (userEmail) {
+            emailBody += `\nFrom Email: ${userEmail}`;
+        }
+
+        const mailjetAdminEmailData = {
+            Messages: [{
+                From: { Email: process.env.MAILJET_FROM_EMAIL, Name: "Contact Form" },
+                To: ADMIN_EMAIL.map(email => ({ Email: email })),
+                Subject: `Contact Form: ${category} - ${subject}`,
+                TextPart: emailBody,
+            }]
+        };
+
+        // 3. Send email via Mailjet
+        await mailjetClient.post("send", { 'version': 'v3.1' }).request(mailjetAdminEmailData);
+
+        // 4. Respond to frontend
+        res.status(200).send({ success: true, message: 'Your message has been sent successfully!' });
+
+    } catch (error) {
+        console.error('Error sending contact form email:', error);
+        res.status(500).send({ error: 'Failed to send your message. Please try again later.' });
     }
 });
 
