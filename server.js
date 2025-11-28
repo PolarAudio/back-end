@@ -76,9 +76,9 @@ const sendBookingEmails = async (type, bookingData, userEmail, bookingId = null)
         const extras = equipment.filter(item => item.category === 'extra').map(item => item.name || item.id);
 
         let equipmentDetails = '';
-        if (players.length > 0) equipmentDetails += `<p class="equip"><strong>Players:</strong> ${players.join(', ')}</p>`;
-        if (mixers.length > 0) equipmentDetails += `<p class="equip"><strong>Mixers:</strong> ${mixers.join(', ')}</p>`;
-        if (extras.length > 0) equipmentDetails += `<p class="equip"><strong>Extras:</strong> ${extras.join(', ')}</p>`;
+        if (players.length > 0) equipmentDetails += `<p><strong>Players:</strong> ${players.join(', ')}</p>`;
+        if (mixers.length > 0) equipmentDetails += `<p><strong>Mixers:</strong> ${mixers.join(', ')}</p>`;
+        if (extras.length > 0) equipmentDetails += `<p><strong>Extras:</strong> ${extras.join(', ')}</p>`;
 
         return equipmentDetails;
     };
@@ -98,20 +98,22 @@ const sendBookingEmails = async (type, bookingData, userEmail, bookingId = null)
         <html>
             <head>${styles}</head>
             <body>
-                <div class="container">
-                    <div class="header"><h1>Booking ${type.charAt(0).toUpperCase() + type.slice(1)}d</h1></div>
-                    <div class="content">
-                        <p>Dear ${bookingData.userName},</p>
-                        <p>Your booking has been ${type}d.</p>
-                        ${type === 'decline' ? `<p><strong>Reason:</strong> ${bookingData.reason}</p>` : ''}
-                        <h3>Details:</h3>
-                        ${bookingDetails}
-                        <p>Thank you.</p>
-                    </div>
-                    <div class="footer">
-                        <p>&copy; ${new Date().getFullYear()} Polar. All rights reserved.</p>
-                    </div>
-                </div>
+				<div class="background">
+					<div class="container">
+						<div class="header"><h1>Booking ${type.charAt(0).toUpperCase() + type.slice(1)}d</h1></div>
+						<div class="content">
+							<p>Dear ${bookingData.userName},</p>
+							<p>Your booking has been ${type}d.</p>
+							${type === 'decline' ? `<p><strong>Reason:</strong> ${bookingData.reason}</p>` : ''}
+							<h3>Details:</h3>
+							${bookingDetails}
+							<p>Thank you.</p>
+						</div>
+						<div class="footer">
+							<p>&copy; ${new Date().getFullYear()} Polar. All rights reserved.</p>
+						</div>
+					</div>
+				</div>
             </body>
         </html>
     `;
@@ -134,18 +136,20 @@ const sendBookingEmails = async (type, bookingData, userEmail, bookingId = null)
         <html>
             <head>${styles}</head>
             <body>
-                <div class="container">
-                    <div class="header"><h1>Admin Notification: Booking ${type.charAt(0).toUpperCase() + type.slice(1)}d</h1></div>
-                    <div class="content">
-                        <p>A booking has been ${type}d.</p>
-                        <h3>Details:</h3>
-                        ${bookingDetails}
-                        ${type === 'cancel' ? '' : `<p><a href="${adminDashboardLink}" class="button">Go to Admin Dashboard</a></p>`}
-                    </div>
-                    <div class="footer">
-                        <p>&copy; ${new Date().getFullYear()} Polar. All rights reserved.</p>
-                    </div>
-                </div>
+				<div class="background">
+					<div class="container">
+						<div class="header"><h1>Admin Notification: Booking ${type.charAt(0).toUpperCase() + type.slice(1)}d</h1></div>
+						<div class="content">
+							<p>A booking has been ${type}d.</p>
+							<h3>Details:</h3>
+							${bookingDetails}
+							${type === 'cancel' ? '' : `<p><a href="${adminDashboardLink}" class="button">Go to Admin Dashboard</a></p>`}
+						</div>
+						<div class="footer">
+							<p>&copy; ${new Date().getFullYear()} Polar. All rights reserved.</p>
+						</div>
+					</div>
+				</div>
             </body>
         </html>
     `;

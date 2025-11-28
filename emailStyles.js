@@ -4,11 +4,12 @@ const styles = `
   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
   body {
     font-family: 'Inter', sans-serif;
-    background-color: #111827;
-    color: #fff;
     margin: 0;
     padding: 0;
-	text-align: center;
+  }
+  .background {
+	width: 100%;
+	background-color: #111827;
   }
   .container {
     max-width: 600px;
@@ -33,6 +34,8 @@ const styles = `
 	border-radius: 1rem;
 	margin-Bottom: 24px;
 	background-color: #1f2937;
+	color: white;
+	text-align: center;
   }
   .footer {
     text-align: center;
@@ -48,9 +51,6 @@ const styles = `
     border-radius: 5px;
     text-decoration: none;
     font-weight: bold;
-  }
-  .equip {
-	fontcolor: orange;
   }
 </style>
 `;
