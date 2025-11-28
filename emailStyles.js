@@ -16,6 +16,7 @@ const styles = `
     margin: 0 auto;
     border-radius: 1rem;
     box-shadow: 0 0 10px rgba(0,0,0,0.1);
+	padding-top: 1px;
   }
   .header {
     background-color: #374151;
@@ -42,6 +43,7 @@ const styles = `
     font-size: 12px;
     color: #fb923c;
     margin-top: 20px;
+	padding-bottom: 1px;
   }
   .button {
     display: inline-block;
