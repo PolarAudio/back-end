@@ -7,6 +7,7 @@ const admin = require('firebase-admin');
 const bodyParser = require('body-parser');
 const cors = require('cors');
 const { createCalendarEvent, updateCalendarEvent, deleteCalendarEvent } = require('./googleCalendar');
+const { styles } = require('./emailStyles');
 
 // Initialize Firebase Admin SDK
 const serviceAccount = require('./serviceAccountKey.json');
@@ -75,54 +76,52 @@ const sendBookingEmails = async (type, bookingData, userEmail, bookingId = null)
         const extras = equipment.filter(item => item.category === 'extra').map(item => item.name || item.id);
 
         let equipmentDetails = '';
-        if (players.length > 0) equipmentDetails += `Players: ${players.join(', ')}\n`;
-        if (mixers.length > 0) equipmentDetails += `Mixers: ${mixers.join(', ')}\n`;
-        if (extras.length > 0) equipmentDetails += `Extras: ${extras.join(', ')}\n`;
+        if (players.length > 0) equipmentDetails += `<p class="equip"><strong>Players:</strong> ${players.join(', ')}</p>`;
+        if (mixers.length > 0) equipmentDetails += `<p class="equip"><strong>Mixers:</strong> ${mixers.join(', ')}</p>`;
+        if (extras.length > 0) equipmentDetails += `<p class="equip"><strong>Extras:</strong> ${extras.join(', ')}</p>`;
 
         return equipmentDetails;
     };
 
     const bookingDetails = `
-        Booking ID: ${bookingId || 'N/A'}
-        User Name: ${bookingData.userName}
-        Date: ${bookingData.date}
-        Time: ${bookingData.time}
-        ${type === 'cancel' ? '' : `Duration: ${bookingData.duration} hours`}
-        ${type === 'cancel' ? '' : (bookingData.equipment && bookingData.equipment.length > 0 ? `Equipment:\n${formatEquipment(bookingData.equipment)}` : '')}
-        ${type === 'cancel' ? '' : (bookingData.paymentStatus ? `Payment Status: ${bookingData.paymentStatus}` : '')}
-        ${bookingData.status ? `Status: ${bookingData.status}` : ''}
+        <p><strong>Booking ID:</strong> ${bookingId || 'N/A'}</p>
+        <p><strong>User Name:</strong> ${bookingData.userName}</p>
+        <p><strong>Date:</strong> ${bookingData.date}</p>
+        <p><strong>Time:</strong> ${bookingData.time}</p>
+        ${type === 'cancel' ? '' : `<p><strong>Duration:</strong> ${bookingData.duration} hours</p>`}
+        ${type === 'cancel' ? '' : (bookingData.equipment && bookingData.equipment.length > 0 ? `${formatEquipment(bookingData.equipment)}` : '')}
+        ${type === 'cancel' ? '' : (bookingData.paymentStatus ? `<p><strong>Payment Status:</strong> ${bookingData.paymentStatus}</p>` : '')}
+        ${bookingData.status ? `<p><strong>Status:</strong> ${bookingData.status}</p>` : ''}
     `;
 
-    // --- Email to client ---
-    let clientText = `Dear ${bookingData.userName},
-
-Your booking has been ${type}d.
-
-Details:
-${bookingDetails}
-
-Thank you.`;
-
-    if (type === 'decline') {
-        clientText = `Dear ${bookingData.userName},
-
-Your booking has been declined.
-
-Reason: ${bookingData.reason}
-
-Details:
-${bookingDetails}
-
-Thank you.`;
-    }
-
+    const clientHtml = `
+        <html>
+            <head>${styles}</head>
+            <body>
+                <div class="container">
+                    <div class="header"><h1>Booking ${type.charAt(0).toUpperCase() + type.slice(1)}d</h1></div>
+                    <div class="content">
+                        <p>Dear ${bookingData.userName},</p>
+                        <p>Your booking has been ${type}d.</p>
+                        ${type === 'decline' ? `<p><strong>Reason:</strong> ${bookingData.reason}</p>` : ''}
+                        <h3>Details:</h3>
+                        ${bookingDetails}
+                        <p>Thank you.</p>
+                    </div>
+                    <div class="footer">
+                        <p>&copy; ${new Date().getFullYear()} Polar. All rights reserved.</p>
+                    </div>
+                </div>
+            </body>
+        </html>
+    `;
 
     const clientEmailData = {
         Messages: [{
             From: { Email: process.env.MAILJET_FROM_EMAIL, Name: "Polar" },
             To: [{ Email: userEmail }],
             Subject: subject,
-            TextPart: clientText,
+            HTMLPart: clientHtml,
         }]
     };
 
@@ -131,19 +130,32 @@ Thank you.`;
 
     // --- Email to admin ---
     const adminDashboardLink = 'https://polaraudio.github.io/admin-page/';
-    const adminText = `A booking has been ${type}d.
-
-Details:
-${bookingDetails}${type === 'cancel' ? '' : `
-
-Go to Admin Dashboard: ${adminDashboardLink}`}`;
+    const adminHtml = `
+        <html>
+            <head>${styles}</head>
+            <body>
+                <div class="container">
+                    <div class="header"><h1>Admin Notification: Booking ${type.charAt(0).toUpperCase() + type.slice(1)}d</h1></div>
+                    <div class="content">
+                        <p>A booking has been ${type}d.</p>
+                        <h3>Details:</h3>
+                        ${bookingDetails}
+                        ${type === 'cancel' ? '' : `<p><a href="${adminDashboardLink}" class="button">Go to Admin Dashboard</a></p>`}
+                    </div>
+                    <div class="footer">
+                        <p>&copy; ${new Date().getFullYear()} Polar. All rights reserved.</p>
+                    </div>
+                </div>
+            </body>
+        </html>
+    `;
 
     const adminEmailData = {
         Messages: [{
             From: { Email: process.env.MAILJET_FROM_EMAIL, Name: "Booking System" },
             To: ADMIN_EMAIL.map(email => ({ Email: email })),
             Subject: `Admin Notification: ${subject}`,
-            TextPart: adminText,
+            HTMLPart: adminHtml,
         }]
     };
 
@@ -455,19 +467,36 @@ app.post('/api/admin/create-user', authenticate, adminOnly, async (req, res) => 
 
         const link = await admin.auth().generatePasswordResetLink(email);
 
+        const emailHtml = `
+            <html>
+                <head>${styles}</head>
+                <body>
+                    <div class="container">
+                        <div class="header"><h1>Set Up Your Showroom Booking App Account</h1></div>
+                        <div class="content">
+                            <p>Hello ${displayName || email},</p>
+                            <p>Polar has created an account for you to use the Showroom Booking App.</p>
+                            <p>To set up your password and log in, please click on the link below:</p>
+                            <p><a href="${link}" class="button">Set Your Password</a></p>
+                            <p>This link is valid for a single use and will expire after a short period.</p>
+                            <p>You can access the app here: <a href="${process.env.FRONTEND_URL || '#'}">${process.env.FRONTEND_URL || 'Booking App'}</a></p>
+                            <p>Thank you,</p>
+                            <p>The Polar Team</p>
+                        </div>
+                        <div class="footer">
+                            <p>&copy; ${new Date().getFullYear()} Polar. All rights reserved.</p>
+                        </div>
+                    </div>
+                </body>
+            </html>
+        `;
+
         const emailData = {
             Messages: [{
                 From: { Email: process.env.MAILJET_FROM_EMAIL, Name: "The Polar Team" },
                 To: [{ Email: email }],
                 Subject: 'Set Up Your Showroom Booking App Account',
-                HTMLPart: `<p>Hello ${displayName || email},</p>
-                   <p>Polar has created an account for you to use the Showroom Booking App.</p>
-                   <p>To set up your password and log in, please click on the link below:</p>
-                   <p><a href="${link}">Set Your Password</a></p>
-                   <p>This link is valid for a single use and will expire after a short period.</p>
-                   <p>You can access the app here: <a href="${process.env.FRONTEND_URL || '[Link to App Here]'}">${process.env.FRONTEND_URL || '[Link to App Here]'}</a></p>
-                   <p>Thank you,</p>
-                   <p>The Polar Team</p>`,
+                HTMLPart: emailHtml,
             }]
         };
 
@@ -712,12 +741,34 @@ app.post('/api/contact-us', async (req, res) => {
             emailBody += `\nFrom Email: ${userEmail}`;
         }
 
+        const emailHtml = `
+            <html>
+                <head>${styles}</head>
+                <body>
+                    <div class="container">
+                        <div class="header"><h1>Contact Form Submission</h1></div>
+                        <div class="content">
+                            <p><strong>Category:</strong> ${category}</p>
+                            <p><strong>Subject:</strong> ${subject}</p>
+                            <p><strong>Message:</strong></p>
+                            <p>${message.replace(/\n/g, '<br>')}</p>
+                            ${userName ? `<p><strong>From Name:</strong> ${userName}</p>` : ''}
+                            ${userEmail ? `<p><strong>From Email:</strong> ${userEmail}</p>` : ''}
+                        </div>
+                        <div class="footer">
+                            <p>&copy; ${new Date().getFullYear()} Polar. All rights reserved.</p>
+                        </div>
+                    </div>
+                </body>
+            </html>
+        `;
+
         const mailjetAdminEmailData = {
             Messages: [{
                 From: { Email: process.env.MAILJET_FROM_EMAIL, Name: "Contact Form" },
                 To: ADMIN_EMAIL.map(email => ({ Email: email })),
                 Subject: `Contact Form: ${category} - ${subject}`,
-                TextPart: emailBody,
+                HTMLPart: emailHtml,
             }]
         };
 
