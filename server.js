@@ -372,12 +372,9 @@ app.get('/api/admin/bookings', authenticate, adminOnly, async (req, res) => {
 
 app.get('/api/admin/bookings/finished', authenticate, adminOnly, async (req, res) => {
     try {
-        // This query requires a composite index in Firestore.
-        // Go to your Firestore console -> Indexes -> Composite and create an index with:
-        // Collection ID: bookings, Query scope: Collection group
-        // Fields to index: completionState (Ascending), date (Descending)
         const bookingsSnapshot = await db.collectionGroup('bookings')
             .where('completionState', '==', 'finished')
+            .where('paymentStatus', '==', 'paid') // Ensure payment is confirmed
             .orderBy('date', 'desc')
             .get();
         const bookings = bookingsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -743,7 +740,7 @@ app.post('/api/admin/bookings/finish', authenticate, adminOnly, async (req, res)
             return res.status(404).send({ error: 'Booking not found for the specified user.' });
         }
 
-        await bookingRef.update({ completionState: 'finished' });
+        await bookingRef.update({ completionState: 'finished', paymentStatus: 'paid' });
 
         res.send({ success: true, message: 'Booking marked as finished.' });
     } catch (error) {
