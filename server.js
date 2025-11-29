@@ -282,6 +282,7 @@ app.post('/api/confirm-booking', authenticate, async (req, res) => {
                 userName,
                 userId: uid,
                 status: 'waiting for confirmation',
+                completionState: 'open',
                 timestamp: admin.firestore.FieldValue.serverTimestamp()
             });
             bookingId = bookingRef.id;
@@ -356,10 +357,9 @@ app.get('/api/admin/bookings', authenticate, adminOnly, async (req, res) => {
         // This query requires a composite index in Firestore.
         // Go to your Firestore console -> Indexes -> Composite and create an index with:
         // Collection ID: bookings, Query scope: Collection group
-        // Fields to index: status (Ascending), date (Descending)
+        // Fields to index: completionState (Ascending), date (Descending)
         const bookingsSnapshot = await db.collectionGroup('bookings')
-            .where('status', '!=', 'completed')
-            .orderBy('status', 'asc')
+            .where('completionState', '==', 'open')
             .orderBy('date', 'desc')
             .get();
         const bookings = bookingsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -367,6 +367,24 @@ app.get('/api/admin/bookings', authenticate, adminOnly, async (req, res) => {
     } catch (error) {
         console.error('Error fetching all bookings:', error);
         res.status(500).send({ error: 'Failed to fetch all bookings.' });
+    }
+});
+
+app.get('/api/admin/bookings/finished', authenticate, adminOnly, async (req, res) => {
+    try {
+        // This query requires a composite index in Firestore.
+        // Go to your Firestore console -> Indexes -> Composite and create an index with:
+        // Collection ID: bookings, Query scope: Collection group
+        // Fields to index: completionState (Ascending), date (Descending)
+        const bookingsSnapshot = await db.collectionGroup('bookings')
+            .where('completionState', '==', 'finished')
+            .orderBy('date', 'desc')
+            .get();
+        const bookings = bookingsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        res.send(bookings);
+    } catch (error) {
+        console.error('Error fetching finished bookings:', error);
+        res.status(500).send({ error: 'Failed to fetch finished bookings.' });
     }
 });
 
@@ -428,6 +446,7 @@ app.post('/api/admin/bookings', authenticate, adminOnly, async (req, res) => {
             userName,
             userId: uid,
             status: 'booking confirmed',
+            completionState: 'open',
             timestamp: admin.firestore.FieldValue.serverTimestamp()
         });
 
@@ -596,6 +615,7 @@ app.post('/api/admin/confirm-booking', authenticate, adminOnly, async (req, res)
                 userName,
                 userId: userId,
                 status: 'booking confirmed',
+                completionState: 'open',
                 timestamp: admin.firestore.FieldValue.serverTimestamp()
             });
             bookingId = bookingRef.id;
@@ -705,6 +725,30 @@ app.post('/api/admin/decline-booking', authenticate, adminOnly, async (req, res)
     } catch (error) {
         console.error('Error declining booking by admin:', error);
         res.status(500).send({ error: 'Failed to decline booking by admin.' });
+    }
+});
+
+app.post('/api/admin/bookings/finish', authenticate, adminOnly, async (req, res) => {
+    const { bookingId, userId } = req.body;
+
+    if (!bookingId || !userId) {
+        return res.status(400).send({ error: 'Booking ID and User ID are required.' });
+    }
+
+    try {
+        const bookingRef = db.doc(`artifacts/${APP_ID_FOR_FIRESTORE_PATH}/users/${userId}/bookings/${bookingId}`);
+        const doc = await bookingRef.get();
+
+        if (!doc.exists) {
+            return res.status(404).send({ error: 'Booking not found for the specified user.' });
+        }
+
+        await bookingRef.update({ completionState: 'finished' });
+
+        res.send({ success: true, message: 'Booking marked as finished.' });
+    } catch (error) {
+        console.error('Error finishing booking by admin:', error);
+        res.status(500).send({ error: 'Failed to finish booking by admin.' });
     }
 });
 

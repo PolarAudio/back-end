@@ -8,10 +8,10 @@ To create the required indexes, follow these steps:
 3. Click on "Composite" and then "Add Index".
 4. Use the information below to create the index.
 
-Required Index for Admin Bookings (Open and Completed):
+Required Index for Admin Bookings by completionState:
 - Collection ID: bookings
 - Fields to index:
-  - status (Ascending)
+  - completionState (Ascending)
   - date (Descending)
 - Query scope: Collection group
 
