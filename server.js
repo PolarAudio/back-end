@@ -354,16 +354,20 @@ app.post('/api/confirm-payment', authenticate, async (req, res) => {
 // Admin routes
 app.get('/api/admin/bookings', authenticate, adminOnly, async (req, res) => {
     try {
-        // This query requires a composite index in Firestore.
-        // Go to your Firestore console -> Indexes -> Composite and create an index with:
-        // Collection ID: bookings, Query scope: Collection group
-        // Fields to index: completionState (Ascending), date (Descending)
+        // This query requires a simple index on the 'date' field in Firestore.
         const bookingsSnapshot = await db.collectionGroup('bookings')
-            .where('completionState', '==', 'open')
             .orderBy('date', 'desc')
             .get();
-        const bookings = bookingsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        res.send(bookings);
+        const allBookings = bookingsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+        const openBookings = allBookings.filter(booking => {
+            const { completionState, paymentStatus } = booking;
+            return (completionState === 'open' && paymentStatus === 'pending') ||
+                   (completionState === 'finished' && paymentStatus === 'pending') ||
+                   (completionState === 'open' && paymentStatus === 'paid');
+        });
+
+        res.send(openBookings);
     } catch (error) {
         console.error('Error fetching all bookings:', error);
         res.status(500).send({ error: 'Failed to fetch all bookings.' });
@@ -372,6 +376,10 @@ app.get('/api/admin/bookings', authenticate, adminOnly, async (req, res) => {
 
 app.get('/api/admin/bookings/finished', authenticate, adminOnly, async (req, res) => {
     try {
+        // This query requires a composite index in Firestore.
+        // Go to your Firestore console -> Indexes -> Composite and create an index with:
+        // Collection ID: bookings, Query scope: Collection group
+        // Fields to index: completionState (Ascending), paymentStatus (Ascending), date (Descending)
         const bookingsSnapshot = await db.collectionGroup('bookings')
             .where('completionState', '==', 'finished')
             .where('paymentStatus', '==', 'paid') // Ensure payment is confirmed
