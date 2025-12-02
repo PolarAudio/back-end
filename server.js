@@ -322,14 +322,16 @@ app.post('/api/cancel-booking', authenticate, async (req, res) => {
 });
 
 app.get('/api/check-booked-slots', authenticate, async (req, res) => {
-    const { date } = req.query;
+    const { date, excludeBookingId } = req.query;
     if (!date) {
         return res.status(400).send({ error: 'Date parameter is required.' });
     }
 
     try {
         const bookingsSnapshot = await db.collectionGroup('bookings').get();
-        const bookedSlots = bookingsSnapshot.docs.map(doc => doc.data());
+        const bookedSlots = bookingsSnapshot.docs
+            .map(doc => ({ id: doc.id, ...doc.data() }))
+            .filter(booking => booking.id !== excludeBookingId);
         res.send({ bookedSlots });
     } catch (error) {
         console.error('Error fetching booked slots:', error);
