@@ -216,6 +216,10 @@ const sendAdminPushNotification = async (title, body) => {
 
     } catch (error) {
         console.error('Error sending admin push notification:', error);
+        if (error.code === 9) {
+            console.error('POSSIBLE FIX: This query requires a Firestore Collection Group Index. Check the error message above for a direct link to create it in the Firebase Console.');
+            console.error('Error Message:', error.message); 
+        }
     }
 };
 // --- NEW NOTIFICATION LOGIC END ---
