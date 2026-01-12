@@ -711,6 +711,12 @@ app.post('/api/admin/confirm-booking', authenticate, adminOnly, async (req, res)
         const clientEmail = userRecord.email;
         await sendBookingEmails(editingBookingId ? 'update' : 'create', { ...bookingData, userName }, clientEmail, bookingId);
 
+        // Notify other admins
+        await sendAdminPushNotification(
+            editingBookingId ? 'Admin Updated Booking' : 'Admin Created Booking',
+            `User: ${userName}\nDate: ${bookingData.date}\nTime: ${bookingData.time}`
+        );
+
         res.send({ success: true, bookingId });
     } catch (error) {
         console.error('Error in /api/admin/confirm-booking:', error);
@@ -743,6 +749,13 @@ app.post('/api/admin/cancel-booking', authenticate, adminOnly, async (req, res) 
         const userRecord = await admin.auth().getUser(userId);
         const clientEmail = userRecord.email;
         await sendBookingEmails('cancel', existingBookingData, clientEmail, bookingId);
+
+        // Notify other admins
+        await sendAdminPushNotification(
+            'Admin Cancelled Booking',
+            `The booking for ${existingBookingData.userName} on ${existingBookingData.date} has been cancelled by an admin.`
+        );
+
         res.send({ success: true, message: 'Booking cancelled successfully by admin.' });
     } catch (error) {
         console.error('Error cancelling booking by admin:', error);
@@ -804,6 +817,12 @@ app.post('/api/admin/decline-booking', authenticate, adminOnly, async (req, res)
 
         // Pass the reason to the email function
         await sendBookingEmails('decline', { ...existingBookingData, reason }, clientEmail, bookingId);
+
+        // Notify other admins
+        await sendAdminPushNotification(
+            'Booking Declined',
+            `The booking for ${existingBookingData.userName} on ${existingBookingData.date} has been declined.\nReason: ${reason}`
+        );
 
         res.send({ success: true, message: 'Booking declined successfully.' });
     } catch (error) {
