@@ -167,6 +167,59 @@ const sendBookingEmails = async (type, bookingData, userEmail, bookingId = null)
         .catch(err => console.error(`Error sending admin ${type} email:`, err.statusCode, err.message));
 };
 
+// --- NEW NOTIFICATION LOGIC START ---
+
+// Helper to send push notifications to all Admins
+const sendAdminPushNotification = async (title, body) => {
+    try {
+        console.log(`Preparing to send push notification: ${title}`);
+
+        // 1. Find all admin users by querying the 'profiles' collection group
+        // This works because App.jsx saves the token in the 'userProfile' document
+        const profilesRef = db.collectionGroup('profiles');
+        const snapshot = await profilesRef.where('role', '==', 'admin').get();
+
+        const tokens = [];
+        snapshot.forEach(doc => {
+            const data = doc.data();
+            if (data.fcmToken) {
+                tokens.push(data.fcmToken);
+            }
+        });
+
+        if (tokens.length === 0) {
+            console.log('No admin FCM tokens found to send notifications to.');
+            return;
+        }
+
+        // 2. Send the message via Firebase Messaging
+        const message = {
+            notification: {
+                title: title,
+                body: body
+            },
+            tokens: tokens
+        };
+
+        const response = await admin.messaging().sendEachForMulticast(message);
+        console.log(`${response.successCount} push notifications sent successfully.`);
+
+        if (response.failureCount > 0) {
+            console.log('Failed to send some notifications.');
+            response.responses.forEach((resp, idx) => {
+                if (!resp.success) {
+                    // Optional: Remove invalid tokens here if you want to clean up DB
+                    console.log(`Failed token: ${tokens[idx]}`, resp.error);
+                }
+            });
+        }
+
+    } catch (error) {
+        console.error('Error sending admin push notification:', error);
+    }
+};
+// --- NEW NOTIFICATION LOGIC END ---
+
 
 // Middleware to authenticate requests
 const authenticate = async (req, res, next) => {
@@ -292,6 +345,12 @@ app.post('/api/confirm-booking', authenticate, async (req, res) => {
 
         await sendBookingEmails(editingBookingId ? 'update' : 'create', { ...bookingData, userName }, email, bookingId);
 
+        // ==> ADD THIS LINE <==
+        await sendAdminPushNotification(
+            editingBookingId ? 'Booking Updated' : 'New Booking Received',
+            `User: ${userName}\nDate: ${bookingData.date}\nTime: ${bookingData.time}`
+        );
+
         res.send({ success: true, bookingId });
     } catch (error) {
         console.error('Error in /api/confirm-booking:', error);
@@ -314,6 +373,13 @@ app.post('/api/cancel-booking', authenticate, async (req, res) => {
         await bookingRef.delete();
         await deleteCalendarEvent(googleEventId);
         await sendBookingEmails('cancel', existingBookingData, req.user.email, bookingId);
+        
+        // ==> ADD THIS LINE <==
+        await sendAdminPushNotification(
+            'Booking Cancelled',
+            `The booking for ${existingBookingData.userName} on ${existingBookingData.date} has been cancelled.`
+        );
+
         res.send({ success: true, message: 'Booking cancelled successfully.' });
     } catch (error) {
         console.error('Error cancelling booking:', error);
@@ -461,6 +527,13 @@ app.post('/api/admin/bookings', authenticate, adminOnly, async (req, res) => {
         const googleEventId = await createCalendarEvent(bookingId, { ...bookingData, userName }, userEmail);
         await bookingRef.update({ googleEventId });
         await sendBookingEmails('create', { ...bookingData, userName }, userEmail, bookingId);
+
+        // ==> ADD THIS LINE <==
+        await sendAdminPushNotification(
+            'Admin Created Booking',
+            `New booking created for ${userName} on ${bookingData.date}.`
+        );
+
         res.send({ success: true, bookingId });
     } catch (error) {
         console.error('Error creating booking for user:', error);
