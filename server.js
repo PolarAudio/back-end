@@ -199,13 +199,16 @@ const sendAdminPushNotification = async (title, body) => {
             return;
         }
 
-        // 2. Send the message via Firebase Messaging
+        // --- ADD THIS LINE TO DEDUPLICATE TOKENS ---
+        const uniqueTokens = [...new Set(tokens)];
+
         const message = {
             notification: {
                 title: title,
                 body: body
             },
-            tokens: tokens
+            // --- UPDATE THIS TO USE uniqueTokens ---
+            tokens: uniqueTokens
         };
 
         const response = await admin.messaging().sendEachForMulticast(message);
@@ -216,7 +219,7 @@ const sendAdminPushNotification = async (title, body) => {
             response.responses.forEach((resp, idx) => {
                 if (!resp.success) {
                     // Optional: Remove invalid tokens here if you want to clean up DB
-                    console.log(`Failed token: ${tokens[idx]}`, resp.error);
+                    console.log(`Failed token: ${uniqueTokens[idx]}`, resp.error);
                 }
             });
         }
