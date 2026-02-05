@@ -69,9 +69,15 @@ const sendBookingEmails = async (type, bookingData, userEmail, bookingId = null)
     };
     const subject = subjectMap[type] || 'Booking Notification';
 
-    const formatEquipment = (equipment) => {
+    const formatEquipment = (equipment, cdjCount) => {
         if (!equipment || equipment.length === 0) return '';
-        const players = equipment.filter(item => item.category === 'player').map(item => item.name || item.id);
+        const players = equipment.filter(item => item.category === 'player').map(item => {
+            const name = item.name || item.id;
+            if (name.includes('CDJ-3000') && cdjCount) {
+                return `${name} (x${cdjCount})`;
+            }
+            return name;
+        });
         const mixers = equipment.filter(item => item.category === 'mixer').map(item => item.name || item.id);
         const extras = equipment.filter(item => item.category === 'extra').map(item => item.name || item.id);
 
@@ -89,7 +95,8 @@ const sendBookingEmails = async (type, bookingData, userEmail, bookingId = null)
         <p><strong>Date:</strong> ${bookingData.date}</p>
         <p><strong>Time:</strong> ${bookingData.time}</p>
         ${type === 'cancel' ? '' : `<p><strong>Duration:</strong> ${bookingData.duration} hours</p>`}
-        ${type === 'cancel' ? '' : (bookingData.equipment && bookingData.equipment.length > 0 ? `${formatEquipment(bookingData.equipment)}` : '')}
+        ${type === 'cancel' ? '' : (bookingData.equipment && bookingData.equipment.length > 0 ? `${formatEquipment(bookingData.equipment, bookingData.cdjCount)}` : '')}
+        ${type === 'cancel' ? '' : (bookingData.totalPrice ? `<p><strong>Total Price:</strong> ${bookingData.totalPrice} RP</p>` : '')}
         ${type === 'cancel' ? '' : (bookingData.paymentStatus ? `<p><strong>Payment Status:</strong> ${bookingData.paymentStatus}</p>` : '')}
         ${bookingData.status ? `<p><strong>Status:</strong> ${bookingData.status}</p>` : ''}
     `;

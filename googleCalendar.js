@@ -14,7 +14,7 @@ const auth = new google.auth.JWT(
 );
 
 const createCalendarEvent = async (bookingId, bookingData, userEmail) => {
-    const equipmentList = formatEquipmentForCalendar(bookingData.equipment);
+    const equipmentList = formatEquipmentForCalendar(bookingData.equipment, bookingData.cdjCount);
     const paymentStatus = formatPaymentStatusForCalendar(bookingData.paymentStatus);
 
     const startDateTime = moment.tz(`${bookingData.date}T${bookingData.time}`, 'YYYY-MM-DDTHH:mm', 'Asia/Makassar');
@@ -22,7 +22,7 @@ const createCalendarEvent = async (bookingId, bookingData, userEmail) => {
 
     const event = {
         summary: `Booking: ${bookingData.userName}`,
-        description: `Booking ID: ${bookingId}\nUser: ${bookingData.userName}\nEmail: ${userEmail}\nPayment: ${paymentStatus}\nEquipment: ${equipmentList}`,
+        description: `Booking ID: ${bookingId}\nUser: ${bookingData.userName}\nEmail: ${userEmail}\nPayment: ${paymentStatus}\nEquipment: ${equipmentList}${bookingData.totalPrice ? `\nTotal Price: ${bookingData.totalPrice} RP` : ''}`,
         start: {
             dateTime: startDateTime.format(),
             timeZone: 'Asia/Makassar',
@@ -44,7 +44,7 @@ const createCalendarEvent = async (bookingId, bookingData, userEmail) => {
 };
 
 const updateCalendarEvent = async (googleEventId, bookingData, userEmail) => {
-    const equipmentList = formatEquipmentForCalendar(bookingData.equipment);
+    const equipmentList = formatEquipmentForCalendar(bookingData.equipment, bookingData.cdjCount);
     const paymentStatus = formatPaymentStatusForCalendar(bookingData.paymentStatus);
 
     const startDateTime = moment.tz(`${bookingData.date}T${bookingData.time}`, 'YYYY-MM-DDTHH:mm', 'Asia/Makassar');
@@ -52,7 +52,7 @@ const updateCalendarEvent = async (googleEventId, bookingData, userEmail) => {
 
     const event = {
         summary: `Booking: ${bookingData.userName}`,
-        description: `User: ${bookingData.userName}\nEmail: ${userEmail}\nPayment: ${paymentStatus}\nEquipment: ${equipmentList}`,
+        description: `User: ${bookingData.userName}\nEmail: ${userEmail}\nPayment: ${paymentStatus}\nEquipment: ${equipmentList}${bookingData.totalPrice ? `\nTotal Price: ${bookingData.totalPrice} RP` : ''}`,
         start: {
             dateTime: startDateTime.format(),
             timeZone: 'Asia/Makassar',
@@ -82,7 +82,23 @@ const deleteCalendarEvent = async (googleEventId) => {
     }
 };
 
-const formatEquipmentForCalendar = (equipment) => {    if (!equipment || equipment.length === 0) return 'None';    const players = equipment.filter(item => item.category === 'player').map(item => item.name || item.id);    const mixers = equipment.filter(item => item.category === 'mixer').map(item => item.name || item.id);    const extras = equipment.filter(item => item.category === 'extra').map(item => item.name || item.id);    let equipmentDetails = [];    if (players.length > 0) equipmentDetails.push(`Players: ${players.join(', ')}`);    if (mixers.length > 0) equipmentDetails.push(`Mixers: ${mixers.join(', ')}`);    if (extras.length > 0) equipmentDetails.push(`Extras: ${extras.join(', ')}`);    return equipmentDetails.join('\n');};
+const formatEquipmentForCalendar = (equipment, cdjCount) => {
+    if (!equipment || equipment.length === 0) return 'None';
+    const players = equipment.filter(item => item.category === 'player').map(item => {
+        const name = item.name || item.id;
+        if (name.includes('CDJ-3000') && cdjCount) {
+            return `${name} (x${cdjCount})`;
+        }
+        return name;
+    });
+    const mixers = equipment.filter(item => item.category === 'mixer').map(item => item.name || item.id);
+    const extras = equipment.filter(item => item.category === 'extra').map(item => item.name || item.id);
+    let equipmentDetails = [];
+    if (players.length > 0) equipmentDetails.push(`Players: ${players.join(', ')}`);
+    if (mixers.length > 0) equipmentDetails.push(`Mixers: ${mixers.join(', ')}`);
+    if (extras.length > 0) equipmentDetails.push(`Extras: ${extras.join(', ')}`);
+    return equipmentDetails.join('\n');
+};
 
 const formatPaymentStatusForCalendar = (paymentStatus) => {
     return paymentStatus || 'N/A';
