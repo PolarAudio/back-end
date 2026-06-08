@@ -96,9 +96,10 @@ const sendBookingEmails = async (type, bookingData, userEmail, bookingId = null)
         <p><strong>Time:</strong> ${bookingData.time}</p>
         ${type === 'cancel' ? '' : `<p><strong>Duration:</strong> ${bookingData.duration} hours</p>`}
         ${type === 'cancel' ? '' : (bookingData.equipment && bookingData.equipment.length > 0 ? `${formatEquipment(bookingData.equipment, bookingData.cdjCount)}` : '')}
-        ${type === 'cancel' ? '' : (bookingData.totalPrice ? `<p><strong>Total Price:</strong> ${bookingData.totalPrice} RP</p>` : '')}
+        ${type === 'cancel' ? '' : ((bookingData.total || bookingData.totalPrice) ? `<p><strong>Total Price:</strong> ${bookingData.total || bookingData.totalPrice} RP</p>` : '')}
         ${type === 'cancel' ? '' : (bookingData.paymentStatus ? `<p><strong>Payment Status:</strong> ${bookingData.paymentStatus}</p>` : '')}
         ${bookingData.status ? `<p><strong>Status:</strong> ${bookingData.status}</p>` : ''}
+        ${bookingData.notes ? `<p><strong>Notes:</strong> ${bookingData.notes}</p>` : ''}
     `;
 
     const clientHtml = `

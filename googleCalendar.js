@@ -22,7 +22,7 @@ const createCalendarEvent = async (bookingId, bookingData, userEmail) => {
 
     const event = {
         summary: `Booking: ${bookingData.userName}`,
-        description: `Booking ID: ${bookingId}\nUser: ${bookingData.userName}\nEmail: ${userEmail}\nPayment: ${paymentStatus}\nEquipment: ${equipmentList}${bookingData.totalPrice ? `\nTotal Price: ${bookingData.totalPrice} RP` : ''}`,
+        description: `Booking ID: ${bookingId}\nUser: ${bookingData.userName}\nEmail: ${userEmail}\nPayment: ${paymentStatus}\nEquipment: ${equipmentList}${((bookingData.total || bookingData.totalPrice)) ? `\nTotal Price: ${bookingData.total || bookingData.totalPrice} RP` : ''}${bookingData.notes ? `\nNotes: ${bookingData.notes}` : ''}`,
         start: {
             dateTime: startDateTime.format(),
             timeZone: 'Asia/Makassar',
@@ -52,7 +52,7 @@ const updateCalendarEvent = async (googleEventId, bookingData, userEmail) => {
 
     const event = {
         summary: `Booking: ${bookingData.userName}`,
-        description: `User: ${bookingData.userName}\nEmail: ${userEmail}\nPayment: ${paymentStatus}\nEquipment: ${equipmentList}${bookingData.totalPrice ? `\nTotal Price: ${bookingData.totalPrice} RP` : ''}`,
+        description: `User: ${bookingData.userName}\nEmail: ${userEmail}\nPayment: ${paymentStatus}\nEquipment: ${equipmentList}${((bookingData.total || bookingData.totalPrice)) ? `\nTotal Price: ${bookingData.total || bookingData.totalPrice} RP` : ''}${bookingData.notes ? `\nNotes: ${bookingData.notes}` : ''}`,
         start: {
             dateTime: startDateTime.format(),
             timeZone: 'Asia/Makassar',
