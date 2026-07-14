@@ -40,6 +40,27 @@ const mailjetClient = require('node-mailjet').apiConnect(
     process.env.MJ_APIKEY_PRIVATE
 );
 
+// Helper to perform a Mailjet send request with retry logic for network-level errors (e.g. ECONNRESET)
+const sendMailjetRequestWithRetry = async (emailData, retries = 3, delay = 1000) => {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      return await mailjetClient.post("send", { 'version': 'v3.1' }).request(emailData);
+    } catch (err) {
+      const isNetworkError =
+        err.code === 'ECONNRESET' ||
+        err.code === 'ETIMEDOUT' ||
+        (err.message && (err.message.includes('ECONNRESET') || err.message.includes('read ECONNRESET') || err.message.includes('timeout')));
+
+      if (isNetworkError && attempt < retries) {
+        console.warn(`[Mailjet] Send failed due to network error (${err.code || err.message}). Retrying attempt ${attempt}/${retries} in ${delay * attempt}ms...`);
+        await new Promise(resolve => setTimeout(resolve, delay * attempt));
+        continue;
+      }
+      throw err;
+    }
+  }
+};
+
 const adminOnly = async (req, res, next) => {
   try {
     const { uid } = req.user;
@@ -135,8 +156,8 @@ const sendBookingEmails = async (type, bookingData, userEmail, bookingId = null)
         }]
     };
 
-    mailjetClient.post("send", { 'version': 'v3.1' }).request(clientEmailData)
-        .catch(err => console.error(`Error sending client ${type} email:`, err.statusCode, err.message));
+    const clientPromise = sendMailjetRequestWithRetry(clientEmailData)
+        .catch(err => console.error(`Error sending client ${type} email:`, err.statusCode || err.code, err.message));
 
     // --- Email to admin ---
     const adminDashboardLink = 'https://polaraudio.github.io/admin-page/';
@@ -171,8 +192,10 @@ const sendBookingEmails = async (type, bookingData, userEmail, bookingId = null)
         }]
     };
 
-    mailjetClient.post("send", { 'version': 'v3.1' }).request(adminEmailData)
-        .catch(err => console.error(`Error sending admin ${type} email:`, err.statusCode, err.message));
+    const adminPromise = sendMailjetRequestWithRetry(adminEmailData)
+        .catch(err => console.error(`Error sending admin ${type} email:`, err.statusCode || err.code, err.message));
+
+    await Promise.all([clientPromise, adminPromise]);
 };
 
 // --- NEW NOTIFICATION LOGIC START ---
@@ -644,13 +667,12 @@ app.post('/api/admin/create-user', authenticate, adminOnly, async (req, res) => 
             }]
         };
 
-        mailjetClient.post("send", { 'version': 'v3.1' }).request(emailData)
-            .then(result => {
-                console.log('Account setup email sent:', result.body);
-            })
-            .catch(err => {
-                console.error('Error sending account setup email:', err.statusCode, err.message);
-            });
+        try {
+            const result = await sendMailjetRequestWithRetry(emailData);
+            console.log('Account setup email sent:', result.body);
+        } catch (err) {
+            console.error('Error sending account setup email:', err.statusCode || err.code, err.message);
+        }
 
         res.status(201).json({ uid: userRecord.uid, email: userRecord.email, displayName: userRecord.displayName });
 
@@ -985,7 +1007,7 @@ app.post('/api/contact-us', async (req, res) => {
         };
 
         // 3. Send email via Mailjet
-        await mailjetClient.post("send", { 'version': 'v3.1' }).request(mailjetAdminEmailData);
+        await sendMailjetRequestWithRetry(mailjetAdminEmailData);
 
         // 4. Respond to frontend
         res.status(200).send({ success: true, message: 'Your message has been sent successfully!' });
