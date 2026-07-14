@@ -3,6 +3,7 @@
 require('dotenv').config();
 
 const express = require('express');
+const https = require('https');
 const admin = require('firebase-admin');
 const bodyParser = require('body-parser');
 const cors = require('cors');
@@ -34,18 +35,59 @@ if (!process.env.FRONTEND_URL) {
   console.warn("WARNING: FRONTEND_URL environment variable is not set. Payment confirmation links in admin emails will be incomplete.");
 }
 
-// Mailjet client setup
-const mailjetClient = require('node-mailjet').apiConnect(
-    process.env.MJ_APIKEY_PUBLIC,
-    process.env.MJ_APIKEY_PRIVATE
-);
+// Helper to perform a Mailjet send request using Node's native HTTPS module with retry logic.
+// This avoids Axios-specific connection pooling (keep-alive) and TLS handshake issues.
+const sendMailjetRequestWithRetry = (emailData, retries = 3, delay = 1000) => {
+  return new Promise((resolve, reject) => {
+    const attemptRequest = (attempt) => {
+      const username = process.env.MJ_APIKEY_PUBLIC;
+      const password = process.env.MJ_APIKEY_PRIVATE;
+      const auth = 'Basic ' + Buffer.from(username + ':' + password).toString('base64');
+      const postData = JSON.stringify(emailData);
 
-// Helper to perform a Mailjet send request with retry logic for network-level errors (e.g. ECONNRESET)
-const sendMailjetRequestWithRetry = async (emailData, retries = 3, delay = 1000) => {
-  for (let attempt = 1; attempt <= retries; attempt++) {
-    try {
-      return await mailjetClient.post("send", { 'version': 'v3.1' }).request(emailData);
-    } catch (err) {
+      const options = {
+        hostname: 'api.mailjet.com',
+        port: 443,
+        path: '/v3.1/send',
+        method: 'POST',
+        headers: {
+          'Authorization': auth,
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(postData)
+        }
+      };
+
+      const req = https.request(options, (res) => {
+        let responseBody = '';
+        res.on('data', (chunk) => {
+          responseBody += chunk;
+        });
+        res.on('end', () => {
+          if (res.statusCode >= 200 && res.statusCode < 300) {
+            try {
+              const parsed = JSON.parse(responseBody);
+              resolve({ body: parsed });
+            } catch (e) {
+              resolve({ body: responseBody });
+            }
+          } else {
+            const err = new Error(`Mailjet API returned status ${res.statusCode}`);
+            err.statusCode = res.statusCode;
+            err.message = responseBody;
+            handleFailure(err, attempt);
+          }
+        });
+      });
+
+      req.on('error', (err) => {
+        handleFailure(err, attempt);
+      });
+
+      req.write(postData);
+      req.end();
+    };
+
+    const handleFailure = (err, attempt) => {
       const isNetworkError =
         err.code === 'ECONNRESET' ||
         err.code === 'ETIMEDOUT' ||
@@ -53,12 +95,16 @@ const sendMailjetRequestWithRetry = async (emailData, retries = 3, delay = 1000)
 
       if (isNetworkError && attempt < retries) {
         console.warn(`[Mailjet] Send failed due to network error (${err.code || err.message}). Retrying attempt ${attempt}/${retries} in ${delay * attempt}ms...`);
-        await new Promise(resolve => setTimeout(resolve, delay * attempt));
-        continue;
+        setTimeout(() => {
+          attemptRequest(attempt + 1);
+        }, delay * attempt);
+      } else {
+        reject(err);
       }
-      throw err;
-    }
-  }
+    };
+
+    attemptRequest(1);
+  });
 };
 
 const adminOnly = async (req, res, next) => {
