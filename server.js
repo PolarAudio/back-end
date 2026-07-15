@@ -37,8 +37,10 @@ if (!process.env.FRONTEND_URL) {
 
 // Helper to perform a Mailjet send request using Node's native HTTPS module with retry logic.
 // This avoids Axios-specific connection pooling (keep-alive) and TLS handshake issues.
-const sendMailjetRequestWithRetry = (emailData, retries = 3, delay = 1000) => {
+const sendMailjetRequestWithRetry = (emailData, retries = 3, baseDelay = 1000) => {
   return new Promise((resolve, reject) => {
+    const REQUEST_TIMEOUT = 30000; // 30s timeout per attempt
+
     const attemptRequest = (attempt) => {
       const username = process.env.MJ_APIKEY_PUBLIC;
       const password = process.env.MJ_APIKEY_PRIVATE;
@@ -50,6 +52,8 @@ const sendMailjetRequestWithRetry = (emailData, retries = 3, delay = 1000) => {
         port: 443,
         path: '/v3.1/send',
         method: 'POST',
+        family: 4, // Force IPv4 to avoid IPv6 resolution issues on some hosts
+        timeout: REQUEST_TIMEOUT,
         headers: {
           'Authorization': auth,
           'Content-Type': 'application/json',
@@ -79,6 +83,10 @@ const sendMailjetRequestWithRetry = (emailData, retries = 3, delay = 1000) => {
         });
       });
 
+      req.on('timeout', () => {
+        req.destroy(new Error('Request timed out'));
+      });
+
       req.on('error', (err) => {
         handleFailure(err, attempt);
       });
@@ -88,17 +96,21 @@ const sendMailjetRequestWithRetry = (emailData, retries = 3, delay = 1000) => {
     };
 
     const handleFailure = (err, attempt) => {
+      const code = err.code || '';
+      const msg = err.message || '';
       const isNetworkError =
-        err.code === 'ECONNRESET' ||
-        err.code === 'ETIMEDOUT' ||
-        (err.message && (err.message.includes('ECONNRESET') || err.message.includes('read ECONNRESET') || err.message.includes('timeout')));
+        code === 'ECONNRESET' || code === 'ETIMEDOUT' || code === 'ECONNREFUSED' || code === 'ENOTFOUND' ||
+        msg.includes('ECONNRESET') || msg.includes('timeout');
 
       if (isNetworkError && attempt < retries) {
-        console.warn(`[Mailjet] Send failed due to network error (${err.code || err.message}). Retrying attempt ${attempt}/${retries} in ${delay * attempt}ms...`);
+        const jitter = Math.floor(Math.random() * 500);
+        const backoffDelay = baseDelay * Math.pow(2, attempt - 1) + jitter;
+        console.warn(`[Mailjet] Send failed due to network error (${code || msg}). Attempt ${attempt}/${retries}. Retrying in ${backoffDelay}ms...`);
         setTimeout(() => {
           attemptRequest(attempt + 1);
-        }, delay * attempt);
+        }, backoffDelay);
       } else {
+        console.error(`[Mailjet] Send failed permanently (attempt ${attempt}/${retries}). Code: ${code}, Message: ${msg}`);
         reject(err);
       }
     };
