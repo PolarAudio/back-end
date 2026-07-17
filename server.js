@@ -3,23 +3,20 @@
 require('dotenv').config();
 
 const express = require('express');
-const dns = require('dns');
-const nodemailer = require('nodemailer');
+const { google } = require('googleapis');
 const admin = require('firebase-admin');
 const bodyParser = require('body-parser');
 const cors = require('cors');
 const { createCalendarEvent, updateCalendarEvent, deleteCalendarEvent } = require('./googleCalendar');
 const { styles } = require('./emailStyles');
 
-dns.setDefaultResultOrder('ipv4first');
-
-const emailTransporter = nodemailer.createTransport({
-  service: 'gmail',
-  auth: {
-    user: process.env.GMAIL_USER,
-    pass: process.env.GMAIL_PASS,
-  },
-});
+const oauth2Client = new google.auth.OAuth2(
+  process.env.GOOGLE_CLIENT_ID,
+  process.env.GOOGLE_CLIENT_SECRET,
+  process.env.GOOGLE_REDIRECT_URI
+);
+oauth2Client.setCredentials({ refresh_token: process.env.GOOGLE_REFRESH_TOKEN });
+const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
 
 // Initialize Firebase Admin SDK
 const serviceAccount = require('./serviceAccountKey.json');
@@ -37,8 +34,9 @@ const APP_ID_FOR_FIRESTORE_PATH = process.env.FIREBASE_PROJECT_ID || 'booking-ap
 const ADMIN_EMAIL = ['polarsolutions.warehouse@gmail.com', 'service@polar-bali.com'];
 
 // Check for essential environment variables for email
-if (!process.env.GMAIL_USER || !process.env.GMAIL_PASS) {
-  console.error("ERROR: GMAIL_USER and GMAIL_PASS environment variables must be set for email to function.");
+if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET || !process.env.GOOGLE_REFRESH_TOKEN) {
+  console.error("ERROR: GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and GOOGLE_REFRESH_TOKEN must be set for email to function.");
+  console.error("Visit /api/auth/google to authorize and obtain a refresh token.");
   process.exit(1);
 }
 
@@ -48,13 +46,29 @@ if (!process.env.FRONTEND_URL) {
 
 const sendEmail = async ({ from, fromName, to, subject, html }) => {
   const recipients = Array.isArray(to) ? to : [to];
-  const info = await emailTransporter.sendMail({
-    from: `"${fromName}" <${from || process.env.GMAIL_USER}>`,
-    to: recipients.join(', '),
-    subject,
+  const fromAddress = from || process.env.GMAIL_USER;
+
+  const mimeMessage = [
+    `From: "${fromName}" <${fromAddress}>`,
+    `To: ${recipients.join(', ')}`,
+    `Subject: ${subject}`,
+    'MIME-Version: 1.0',
+    'Content-Type: text/html; charset=UTF-8',
+    '',
     html,
+  ].join('\r\n');
+
+  const encodedMessage = Buffer.from(mimeMessage)
+    .toString('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
+
+  const info = await gmail.users.messages.send({
+    userId: 'me',
+    requestBody: { raw: encodedMessage },
   });
-  return { body: info };
+  return { body: info.data };
 };
 
 const adminOnly = async (req, res, next) => {
@@ -262,6 +276,29 @@ const authenticate = async (req, res, next) => {
     res.status(401).send({ error: 'Unauthorized' });
   }
 };
+
+// --- Google OAuth2 setup endpoints ---
+app.get('/api/auth/google', (req, res) => {
+  const url = oauth2Client.generateAuthUrl({
+    access_type: 'offline',
+    prompt: 'consent',
+    scope: ['https://www.googleapis.com/auth/gmail.send'],
+  });
+  res.redirect(url);
+});
+
+app.get('/oauth2callback', async (req, res) => {
+  const { code } = req.query;
+  if (!code) return res.status(400).send('Missing authorization code');
+  try {
+    const { tokens } = await oauth2Client.getToken(code);
+    res.send(`<h2>Authorization successful!</h2><p>Refresh token:<br><code>${tokens.refresh_token}</code></p><p>Copy this value and set it as <strong>GOOGLE_REFRESH_TOKEN</strong> in your Render environment variables.</p>`);
+    console.log('GOOGLE_REFRESH_TOKEN=' + tokens.refresh_token);
+  } catch (err) {
+    console.error('OAuth2 token exchange failed:', err.message);
+    res.status(500).send('Token exchange failed: ' + err.message);
+  }
+});
 
 app.post('/api/update-profile', authenticate, async (req, res) => {
     const { displayName, email } = req.body;
