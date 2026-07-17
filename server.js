@@ -3,12 +3,20 @@
 require('dotenv').config();
 
 const express = require('express');
-const https = require('https');
+const nodemailer = require('nodemailer');
 const admin = require('firebase-admin');
 const bodyParser = require('body-parser');
 const cors = require('cors');
 const { createCalendarEvent, updateCalendarEvent, deleteCalendarEvent } = require('./googleCalendar');
 const { styles } = require('./emailStyles');
+
+const emailTransporter = nodemailer.createTransport({
+  service: 'gmail',
+  auth: {
+    user: process.env.GMAIL_USER,
+    pass: process.env.GMAIL_PASS,
+  },
+});
 
 // Initialize Firebase Admin SDK
 const serviceAccount = require('./serviceAccountKey.json');
@@ -25,98 +33,25 @@ app.use(bodyParser.json());
 const APP_ID_FOR_FIRESTORE_PATH = process.env.FIREBASE_PROJECT_ID || 'booking-app-1af02';
 const ADMIN_EMAIL = ['polarsolutions.warehouse@gmail.com', 'service@polar-bali.com'];
 
-// Check for essential environment variables for Mailjet
-if (!process.env.MJ_APIKEY_PUBLIC || !process.env.MJ_APIKEY_PRIVATE || !process.env.MAILJET_FROM_EMAIL) {
-  console.error("ERROR: MJ_APIKEY_PUBLIC, MJ_APIKEY_PRIVATE, and MAILJET_FROM_EMAIL environment variables must be set for Mailjet to function.");
-  process.exit(1); // Exit if critical env vars are missing
+// Check for essential environment variables for email
+if (!process.env.GMAIL_USER || !process.env.GMAIL_PASS) {
+  console.error("ERROR: GMAIL_USER and GMAIL_PASS environment variables must be set for email to function.");
+  process.exit(1);
 }
 
 if (!process.env.FRONTEND_URL) {
   console.warn("WARNING: FRONTEND_URL environment variable is not set. Payment confirmation links in admin emails will be incomplete.");
 }
 
-// Helper to perform a Mailjet send request using Node's native HTTPS module with retry logic.
-// This avoids Axios-specific connection pooling (keep-alive) and TLS handshake issues.
-const sendMailjetRequestWithRetry = (emailData, retries = 3, baseDelay = 1000) => {
-  return new Promise((resolve, reject) => {
-    const REQUEST_TIMEOUT = 30000; // 30s timeout per attempt
-
-    const attemptRequest = (attempt) => {
-      const username = process.env.MJ_APIKEY_PUBLIC;
-      const password = process.env.MJ_APIKEY_PRIVATE;
-      const auth = 'Basic ' + Buffer.from(username + ':' + password).toString('base64');
-      const postData = JSON.stringify(emailData);
-
-      const options = {
-        hostname: 'api.mailjet.com',
-        port: 443,
-        path: '/v3.1/send',
-        method: 'POST',
-        family: 4, // Force IPv4 to avoid IPv6 resolution issues on some hosts
-        timeout: REQUEST_TIMEOUT,
-        headers: {
-          'Authorization': auth,
-          'Content-Type': 'application/json',
-          'Content-Length': Buffer.byteLength(postData)
-        }
-      };
-
-      const req = https.request(options, (res) => {
-        let responseBody = '';
-        res.on('data', (chunk) => {
-          responseBody += chunk;
-        });
-        res.on('end', () => {
-          if (res.statusCode >= 200 && res.statusCode < 300) {
-            try {
-              const parsed = JSON.parse(responseBody);
-              resolve({ body: parsed });
-            } catch (e) {
-              resolve({ body: responseBody });
-            }
-          } else {
-            const err = new Error(`Mailjet API returned status ${res.statusCode}`);
-            err.statusCode = res.statusCode;
-            err.message = responseBody;
-            handleFailure(err, attempt);
-          }
-        });
-      });
-
-      req.on('timeout', () => {
-        req.destroy(new Error('Request timed out'));
-      });
-
-      req.on('error', (err) => {
-        handleFailure(err, attempt);
-      });
-
-      req.write(postData);
-      req.end();
-    };
-
-    const handleFailure = (err, attempt) => {
-      const code = err.code || '';
-      const msg = err.message || '';
-      const isNetworkError =
-        code === 'ECONNRESET' || code === 'ETIMEDOUT' || code === 'ECONNREFUSED' || code === 'ENOTFOUND' ||
-        msg.includes('ECONNRESET') || msg.includes('timeout');
-
-      if (isNetworkError && attempt < retries) {
-        const jitter = Math.floor(Math.random() * 500);
-        const backoffDelay = baseDelay * Math.pow(2, attempt - 1) + jitter;
-        console.warn(`[Mailjet] Send failed due to network error (${code || msg}). Attempt ${attempt}/${retries}. Retrying in ${backoffDelay}ms...`);
-        setTimeout(() => {
-          attemptRequest(attempt + 1);
-        }, backoffDelay);
-      } else {
-        console.error(`[Mailjet] Send failed permanently (attempt ${attempt}/${retries}). Code: ${code}, Message: ${msg}`);
-        reject(err);
-      }
-    };
-
-    attemptRequest(1);
+const sendEmail = async ({ from, fromName, to, subject, html }) => {
+  const recipients = Array.isArray(to) ? to : [to];
+  const info = await emailTransporter.sendMail({
+    from: `"${fromName}" <${from || process.env.GMAIL_USER}>`,
+    to: recipients.join(', '),
+    subject,
+    html,
   });
+  return { body: info };
 };
 
 const adminOnly = async (req, res, next) => {
@@ -205,17 +140,13 @@ const sendBookingEmails = async (type, bookingData, userEmail, bookingId = null)
         </html>
     `;
 
-    const clientEmailData = {
-        Messages: [{
-            From: { Email: process.env.MAILJET_FROM_EMAIL, Name: "Polar" },
-            To: [{ Email: userEmail }],
-            Subject: subject,
-            HTMLPart: clientHtml,
-        }]
-    };
-
-    const clientPromise = sendMailjetRequestWithRetry(clientEmailData)
-        .catch(err => console.error(`Error sending client ${type} email:`, err.statusCode || err.code, err.message));
+    const clientPromise = sendEmail({
+        from: process.env.GMAIL_USER,
+        fromName: 'Polar',
+        to: userEmail,
+        subject,
+        html: clientHtml,
+    }).catch(err => console.error(`Error sending client ${type} email:`, err.code, err.message));
 
     // --- Email to admin ---
     const adminDashboardLink = 'https://polaraudio.github.io/admin-page/';
@@ -241,17 +172,13 @@ const sendBookingEmails = async (type, bookingData, userEmail, bookingId = null)
         </html>
     `;
 
-    const adminEmailData = {
-        Messages: [{
-            From: { Email: process.env.MAILJET_FROM_EMAIL, Name: "Booking System" },
-            To: ADMIN_EMAIL.map(email => ({ Email: email })),
-            Subject: `Admin Notification: ${subject}`,
-            HTMLPart: adminHtml,
-        }]
-    };
-
-    const adminPromise = sendMailjetRequestWithRetry(adminEmailData)
-        .catch(err => console.error(`Error sending admin ${type} email:`, err.statusCode || err.code, err.message));
+    const adminPromise = sendEmail({
+        from: process.env.GMAIL_USER,
+        fromName: 'Booking System',
+        to: ADMIN_EMAIL,
+        subject: `Admin Notification: ${subject}`,
+        html: adminHtml,
+    }).catch(err => console.error(`Error sending admin ${type} email:`, err.code, err.message));
 
     await Promise.all([clientPromise, adminPromise]);
 };
@@ -716,20 +643,17 @@ app.post('/api/admin/create-user', authenticate, adminOnly, async (req, res) => 
             </html>
         `;
 
-        const emailData = {
-            Messages: [{
-                From: { Email: process.env.MAILJET_FROM_EMAIL, Name: "The Polar Team" },
-                To: [{ Email: email }],
-                Subject: 'Set Up Your Showroom Booking App Account',
-                HTMLPart: emailHtml,
-            }]
-        };
-
         try {
-            const result = await sendMailjetRequestWithRetry(emailData);
+            const result = await sendEmail({
+                from: process.env.GMAIL_USER,
+                fromName: 'The Polar Team',
+                to: email,
+                subject: 'Set Up Your Showroom Booking App Account',
+                html: emailHtml,
+            });
             console.log('Account setup email sent:', result.body);
         } catch (err) {
-            console.error('Error sending account setup email:', err.statusCode || err.code, err.message);
+            console.error('Error sending account setup email:', err.code, err.message);
         }
 
         res.status(201).json({ uid: userRecord.uid, email: userRecord.email, displayName: userRecord.displayName });
@@ -1055,17 +979,14 @@ app.post('/api/contact-us', async (req, res) => {
             </html>
         `;
 
-        const mailjetAdminEmailData = {
-            Messages: [{
-                From: { Email: process.env.MAILJET_FROM_EMAIL, Name: "Contact Form" },
-                To: ADMIN_EMAIL.map(email => ({ Email: email })),
-                Subject: `Contact Form: ${category} - ${subject}`,
-                HTMLPart: emailHtml,
-            }]
-        };
-
-        // 3. Send email via Mailjet
-        await sendMailjetRequestWithRetry(mailjetAdminEmailData);
+        // 3. Send email
+        await sendEmail({
+            from: process.env.GMAIL_USER,
+            fromName: 'Contact Form',
+            to: ADMIN_EMAIL,
+            subject: `Contact Form: ${category} - ${subject}`,
+            html: emailHtml,
+        });
 
         // 4. Respond to frontend
         res.status(200).send({ success: true, message: 'Your message has been sent successfully!' });
