@@ -3,12 +3,15 @@
 require('dotenv').config();
 
 const express = require('express');
+const dns = require('dns');
 const nodemailer = require('nodemailer');
 const admin = require('firebase-admin');
 const bodyParser = require('body-parser');
 const cors = require('cors');
 const { createCalendarEvent, updateCalendarEvent, deleteCalendarEvent } = require('./googleCalendar');
 const { styles } = require('./emailStyles');
+
+dns.setDefaultResultOrder('ipv4first');
 
 const emailTransporter = nodemailer.createTransport({
   service: 'gmail',
