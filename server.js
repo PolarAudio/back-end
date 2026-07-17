@@ -35,9 +35,8 @@ const ADMIN_EMAIL = ['polarsolutions.warehouse@gmail.com', 'service@polar-bali.c
 
 // Check for essential environment variables for email
 if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET || !process.env.GOOGLE_REFRESH_TOKEN) {
-  console.error("ERROR: GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and GOOGLE_REFRESH_TOKEN must be set for email to function.");
-  console.error("Visit /api/auth/google to authorize and obtain a refresh token.");
-  process.exit(1);
+  console.warn("WARNING: GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and GOOGLE_REFRESH_TOKEN must be set for email to function.");
+  console.warn("Visit /api/auth/google to authorize and obtain a refresh token.");
 }
 
 if (!process.env.FRONTEND_URL) {
